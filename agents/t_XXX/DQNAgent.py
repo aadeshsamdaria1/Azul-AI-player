@@ -6,6 +6,7 @@ import random
 THINK_TIME = 0.9
 NUM_PLAYERS = 2
 NUM_COLOR = 5
+GRID_SIZE = 5
 BATCH_SIZE = 32
 DISCOUNT_FACTOR = 0.99
 EPSILON = 1.0
@@ -13,25 +14,32 @@ EPSILON_DECAY = 0.999
 MIN_EPSILON = 0.01
 MEMORY_CAPACITY = 10000
 NUM_EPISODES = 10000
-class DQNAgent:
+class DQNTrainModel:
         
     def init(self, _id):
         self.id = _id # The agent needs to remember its own id
-        self.model = self.build_model()
-        self.target_model = self.build_model()
         # double-ended queue used in the replay buffer of the DQN algorithm. It stores the transitions
         # experienced by the agent, which consist of state, action, reward, next state and whether the next state is terminal
         self.memory = []
         self.game_rule = GameRule(NUM_PLAYERS)
-        self.azul_state = AzulState()
+        self.azul_state = self.game_rule.initialGameState()
+        self.agents = self.azul_state.agents # remain the same throughout the game
+        # getlegalactions need gamestate
+        # gamestate is azul_state
+        self.all_possible_actions = self.game_rule.getLegalActions(self.azul_state, self.id)
+        self.num_actions = len(self.all_possible_actions)
+        # prediction network
+        self.model = self.build_model(self.num_actions)
+        # target network
+        self.target_model = self.build_model(self.num_actions)
 
 
 
-    def build_model(self):
+    def build_model(self, num_actions):
         model = tf.keras.Sequential([
             tf.keras.layers.Dense(32, input_dim=25, activation='relu'),
             tf.keras.layers.Dense(32, activation='relu'),
-            tf.keras.layers.Dense(4)
+            tf.keras.layers.Dense(num_actions)
         ])
         model.compile(loss='mse', optimizer=tf.keras.optimizers.Adam())
         return model
@@ -45,7 +53,7 @@ class DQNAgent:
         self.memory.append((state, action, reward, next_state, done))
         if len(self.memory) > MEMORY_CAPACITY:
             self.memory.pop(0)
-    def get_features(state):
+    def get_features(self):
         # Extract relevant features for the Azul game state
 
         # Initialize the feature vector with zeroes
@@ -57,47 +65,103 @@ class DQNAgent:
         # 4. The id of the current player (1)
 
         # Initialize the feature vector with zeros
-        features = np.zeros((NUM_COLOR + NUM_COLOR * NUM_PLAYERS + NUM_PLAYERS + 2, ))
+        # 5 + 5 * 2 + 2 + 1
+        features = np.zeros((NUM_COLOR + NUM_COLOR * NUM_PLAYERS + NUM_PLAYERS + 1, ))
 
         # Add the number of tiles in each colour that have not yet been placed on the game board
 
         # add available tiles from the factory first
-        for factory in state.factories: 
+        # get the total tiles from all factories for later use
+        factory_tile_count = 0
+        for factory in self.azul_state.factories: 
             for colour in utils.Tile:
                 features[colour] = factory.tiles[colour]
+                factory_tile_count += factory.tiles[colour]
                 # factory from state.factories
                 # state.centre_pool.tiles
                 # factory.tiles
         # also add from the centre
         for colour in utils.Tile:
-            features[colour] += state.centre_pool.tiles
+            features[colour] += self.azul_state.centre_pool.tiles
 
-        
         # add the number of tiles of each player that have been placed on the game board
         # access through self.agents
         # self.lines_tile[line] (AgentState)
         # self.lines_number[line]
-        for player in range(NUM_PLAYERS):
-            for colour2 in range(NUM_COLOR):
-                features[colour + player * NUM_COLOR + colour2] 
-                pass
-    def get_player_tiles(self):
-        agents = self.azul_state.agents
-        # initialize a numpy array of size 5 with zeroes
-        
+        # 0 .. 4 av from fac
+        # index 5 -> index 14 (inclusive)
+        # NUM_PLAYERS * NUM_COLOR + NUM_COLOR = 2 * 5 + 5
+        players_filled_tiles = self.get_player_tiles()
+        features[NUM_COLOR : NUM_PLAYERS * NUM_COLOR + NUM_COLOR] = players_filled_tiles
+
+        # Add the current score of each player
+        # self.score in agent state
         for i in range(NUM_PLAYERS):
-            player = agents[i]
+            player = self.agents[i]
+            features[NUM_PLAYERS * NUM_COLOR + NUM_COLOR + i]  = player.score
+        # Add the current round in the game
+        # AgentState.agent_trace.round_scores
+        current_agent = self.agents[self.id]
+
+        # records the scores in each round
+        # if the length of round_scores is 5, it means 5 rounds have been completed and 
+        # we are currently in the sixth round
+        round_scores = current_agent.agent_trace.round_scores
+        current_round = len(round_scores) + 1
+        features[NUM_PLAYERS * NUM_COLOR + NUM_COLOR + NUM_PLAYERS] = current_round
+        # Add the current player's id
+        features[NUM_PLAYERS * NUM_COLOR + NUM_COLOR + NUM_PLAYERS + 1] = self.id
+        return features
+    def get_player_tiles(self):
+        # initialize a numpy array of size 5 with zeroes
+        player_filled_tile = np.zeros((NUM_PLAYERS * NUM_COLOR, ))
+        for i in range(NUM_PLAYERS):
+            player = self.agents[i]
+            # go through each line of the board
+            for j in range(GRID_SIZE):
+                # if the tile is at least filled with one colour
+                if(player.lines_tile[j] != -1):
+                    tile_color = player.lines_tile[j]
+                    num_filled = player.lines_number[j]
+                    player_filled_tile[i * NUM_COLOR + tile_color] = num_filled
+        return player_filled_tile
 
 
-
-
+    # act function is responsible for selecting an action to take in the current state. 
+    # It does this by either selecting a random action with a certain probabilty (exploration), 
+    # or selecting the action with the highest Q-value as determined by the neural network (exploitation)
     def act(self, state):
-        if np.random.rand() <= EPSILON:
-            return self.game_rule.getLegalActions(state, self.id)
-        # TODO: need to change this
-        q_values = self.model.predict(state.reshape(1, -1))[0]
-        return np.argmax(q_values)
+        # This line of code implements the epsilon greedy policy
+        # The function np.random.rand() generates a random number between 0 and 1
+        # and epsilon is the probability of choosing a random action instead of an action
+        # with the highest Q-value
 
+        # If the random number is less than or equal to EPSILON, the agent will explore the game space
+        # by occassionally selecting random actions 
+        
+        # Get legal actions
+        legal_actions = self.game_rule.getLegalActions(state, self.id)
+        if np.random.rand() <= EPSILON:
+            return np.random.choice(legal_actions)
+        # TODO: need to change this
+        # Extract relevant features for the Azul game state
+        features = self.get_features()
+        # Reshape the feature vector to be used as an input to the model
+        features = features.reshape(1, -1)
+        # Use the model to get Q-values for the current state
+        q_values = self.model.predict(features)[0]
+        # set q-values for unavailable actions to very low values
+        for i in range(self.num_actions):
+            if self.all_possible_actions[i] not in legal_actions:
+                q_values[i] = -9999
+        # choose an action with the highest Q-value
+        highest_q_index = np.argmax(q_values)
+        return self.all_possible_actions[highest_q_index]
+
+    # replay function is responsible for training the neural network based on a batch of experiences 
+    # sampled randomly from the agent's memory. This is done in order to update the Q-values of the neural 
+    # network and improve the agent's policy. 
+    # TODO : check this
     def replay(self):
         if len(self.memory) < BATCH_SIZE:
             return
@@ -114,5 +178,18 @@ class DQNAgent:
         target_q_values[dones, actions] = rewards[dones] + DISCOUNT_FACTOR * max_q_values[dones]
         self.model.fit(states, target_q_values, epochs=1, verbose=0)
 
+class DQNTrainFinalPhase: 
     def train(self):
-        pass
+        for episode in range(NUM_EPISODES):
+            # intialise everything needed for training
+            dt = DQNTrainModel()
+            total_reward = 0
+            done = False
+            while not done:
+                # select action
+                action = dt.act()
+                # there is no done, but action can be STARTROUND or ENDROUND
+                # TODO: continue here
+                # dt.game_rule.generateSuccessor()
+                # generate successor
+                pass
