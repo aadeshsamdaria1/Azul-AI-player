@@ -50,7 +50,7 @@ The purpose of this project is to implement an autonomous agent that can play th
 **Your second task** is to get familiar with the code by developing an simple agent based on any one of the techniques listed below. This is an **individual** task. By completing this task, your teams should be able to have 3 or 4 decent agents to play with each other. In addition, each team member should understand more about the game and code.
 
 > :loudspeaker: 
-You may want to look at the file [`agents/single_lookahead.py`](agents/generic/single_lookahead.py), which contains a simple agent that looks ahead one move and selects the best moved based on a (currently empty) heuristic.
+You may want to look at the file [`agents/t_XXX/example_bfs.py`](agents/T_XXX/example_bfs.py), which contains a simple agent that is using BFS and selects the first moved from the plan (if it find any) given a goal function (currently empty).
 
 **Your third task** is to develop an autonomous agent team to play Azul by suitably modifying file [`agents/t_XXX/myTeam.py`](agents/t_000/myTeam.py) (and maybe some other auxiliarly files you may implement). The code submitted should be internally commented at high standards and be error-free and _never crash_. 
 
@@ -268,7 +268,11 @@ You will quickly find that implementing search and learning agents is really har
 * [Modelling and abstraction for single-agent MDPs](https://gibberblot.github.io/rl-notes/single-agent/modelling-and-abstraction.html)
 * [Modelling and abstraction for multi-agent games](https://gibberblot.github.io/rl-notes/multi-agent/modelling-and-abstraction.html)
 
+<<<<<<< HEAD
 These two sets of resources give types on how to increase the efficiency of your search/learning by changing the problem that you are solving. As noted in the [agents/generic/single_lookahead.py](agents/generic/single_lookahead.py), you can take the source code from the simulator and create your own simplified game that is easier to solve, and then use that information to play. E.g. one simple technique that sometimes works is to ignore your opponents moves all together, which reduces the branching factor and allows you to search further ahead. That may not work in every game (it would be terrible in chess), but it would be useful in SOME games.
+=======
+These two sets of resources give types on how to increase the efficiency of your search/learning by changing the problem that you are solving. As noted in the [agents/t_XXX/example_bfs.py](agents/t_XXX/example_bfs.py), you can take the source code from the simulator and create your own simplified game that is easier to solve, and then use that information to play. E.g. one simple technique that sometimes works is to ignore your opponents moves all together, which reduces the branching factor and allows you to search further ahead. That may not work in every game (it would be terrible in chess), but it would be useful in SOME games.
+>>>>>>> upstream/master
 
 
 ### How to create the Wiki
