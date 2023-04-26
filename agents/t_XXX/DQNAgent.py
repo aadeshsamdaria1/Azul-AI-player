@@ -14,6 +14,25 @@ EPSILON_DECAY = 0.999
 MIN_EPSILON = 0.01
 MEMORY_CAPACITY = 10000
 NUM_EPISODES = 10000
+# In general, a typical game of Azul between two skilled players 
+# can take anywhere from 20 to 40 per player
+MAX_MOVES = 50
+# DEEPQ LEARNING ALGORITHM
+# 1. INITIALIZE REPLAY MEMORY CAPACITY
+# 2. INITIALIZE THE NETWORK WITH RANDOM WEIGHTS
+# 3. FOR EACH EPISODE:
+#   1. Initialize the starting state
+#   2. For each time step:
+#       1. SELECT AN ACTION
+#       2. EXECUTE THE SELECTED ACTION IN THE EMULATOR
+#       3. OBSERVE THE REWARD AND THE NEXT STATE
+#       4. STORE EXPERIENCE IN REPLAY MEMORY
+#       5. SELECT RANDOM BATCH FROM THE REPLAY MEMORY
+#       6. PREPROCESS STATES FROM BATCH
+#       7. PASS BATCH OF PREPROCESSED STATES TO THE POLICY NETWORK
+#       8. CALCULATE LOSS BETWEEN OUTPUT Q-VALUES AND TARGET Q-VALUES
+#       9. GRADIENT DESCENT UPDATES WEIGHTS IN THE POLICY NETWORK TO MINIMIZE LOSS
+
 class DQNTrainModel:
         
     def init(self, _id):
@@ -36,8 +55,9 @@ class DQNTrainModel:
 
 
     def build_model(self, num_actions):
+        # TODO: change input dimension?
         model = tf.keras.Sequential([
-            tf.keras.layers.Dense(32, input_dim=25, activation='relu'),
+            tf.keras.layers.Dense(32, input_dim=18, activation='relu'),
             tf.keras.layers.Dense(32, activation='relu'),
             tf.keras.layers.Dense(num_actions)
         ])
@@ -178,6 +198,8 @@ class DQNTrainModel:
         target_q_values[dones, actions] = rewards[dones] + DISCOUNT_FACTOR * max_q_values[dones]
         self.model.fit(states, target_q_values, epochs=1, verbose=0)
 
+
+
 class DQNTrainFinalPhase: 
     def train(self):
         for episode in range(NUM_EPISODES):
@@ -187,9 +209,38 @@ class DQNTrainFinalPhase:
             done = False
             while not done:
                 # select action
+                curr_feature = dt.get_features()
                 action = dt.act()
                 # there is no done, but action can be STARTROUND or ENDROUND
-                # TODO: continue here
-                # dt.game_rule.generateSuccessor()
-                # generate successor
+                if action == "ENDROUND":
+                    done = True 
+                # emulate the action in env
+                successor_state = dt.game_rule.generateSuccessor()
+                reward = self.reward_function(successor_state)
+                next_feature = dt.get_features()
+                # features should be extracted from state and successor_state
+                # before putting them into memory
+                dt.remember(curr_feature, action, reward, next_feature, done)
+                total_reward += reward
+                # move to the next state, how? 
+                # both current state and next state are azul states
+
+                # get the reward of this successor state
                 pass
+    def reward_function(self, state, successor_state):
+        # Reward for completing a row or a column
+        prev_score = state.GetCompletedRows() + state.GetCompletedColumns()
+        curr_score = successor_state.GetCompletedRows() + state.GetCompletedColumns()
+        # get the total number of actions taken so far in the game
+        num_moves = sum(len(round_actions) for round_actions in successor_state.agent_trace.actions)
+        if curr_score > prev_score:
+            reward = 10
+        
+        elif num_moves > MAX_MOVES:
+            reward = -10
+        # Reward for placing the tile in the correct position
+        else:
+            reward = 1
+        return reward
+
+        
