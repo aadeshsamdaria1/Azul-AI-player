@@ -1,5 +1,4 @@
 from template import GameState, GameRule, Agent
-
 import random
 import numpy
 import copy

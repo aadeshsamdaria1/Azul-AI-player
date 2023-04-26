@@ -1,9 +1,9 @@
-from Azul.azul_model import AzulState, GameRule
+
+from Azul.azul_model import AzulState, GameRule, AzulGameRule
 import Azul.azul_utils as utils
 import numpy as np
 import tensorflow as tf 
 import random
-from agents.generic import random
 from template import Agent as DummyAgent
 import copy
 from   func_timeout import func_timeout, FunctionTimedOut
@@ -15,12 +15,15 @@ BATCH_SIZE = 32
 DISCOUNT_FACTOR = 0.99
 EPSILON = 1.0
 EPSILON_DECAY = 0.999
+LEARNING_RATE = 0.1
 MIN_EPSILON = 0.01
 MEMORY_CAPACITY = 10000
 NUM_EPISODES = 10000
+SAVE_FREQUENCY = 10
 # In general, a typical game of Azul between two skilled players 
 # can take anywhere from 20 to 40 per player
 MAX_MOVES = 50
+GAMMA = 0.955
 # DEEPQ LEARNING ALGORITHM
 # 1. INITIALIZE REPLAY MEMORY CAPACITY
 # 2. INITIALIZE THE NETWORK WITH RANDOM WEIGHTS
@@ -37,18 +40,22 @@ MAX_MOVES = 50
 #       8. CALCULATE LOSS BETWEEN OUTPUT Q-VALUES AND TARGET Q-VALUES
 #       9. GRADIENT DESCENT UPDATES WEIGHTS IN THE POLICY NETWORK TO MINIMIZE LOSS
 
-class DQNTrainModel:
+class DQNAgent:
         # game_rule.current_game_state
-    def init(self, _id):
+    def __init__(self, _id, _all_possible_actions):
         self.id = _id # The agent needs to remember its own id
         # double-ended queue used in the replay buffer of the DQN algorithm. It stores the transitions
         # experienced by the agent, which consist of state, action, reward, next state and whether the next state is terminal
         self.memory = []
-        self.game_rule = GameRule(NUM_PLAYERS)
-        self.azul_state = self.game_rule.initialGameState()
+        self.gamma =  GAMMA
+        self.learning_rate = LEARNING_RATE
+        self.epsilon = EPSILON
+        self.epsilon_decay = EPSILON_DECAY
+        self.epsilon_min = MIN_EPSILON
+        self.game_rule = AzulGameRule(NUM_PLAYERS)
         # getlegalactions need gamestate
         # gamestate is azul_state
-        self.all_possible_actions = self.game_rule.getLegalActions(self.azul_state, self.id)
+        self.all_possible_actions = _all_possible_actions
         self.num_actions = len(self.all_possible_actions)
         # policy network
         self.model = self.build_model(self.num_actions)
@@ -72,8 +79,8 @@ class DQNTrainModel:
 
     # the append method is used to add transition into memory , and when the memory is full,
     # the oldest memory is removed
-    def remember(self, state, action, reward, next_state, done):
-        self.memory.append((state, action, reward, next_state, done))
+    def remember(self, state, action, reward, next_state):
+        self.memory.append((state, action, reward, next_state))
         if len(self.memory) > MEMORY_CAPACITY:
             self.memory.pop(0)
     def get_features(self, state):
@@ -105,7 +112,7 @@ class DQNTrainModel:
                 # factory.tiles
         # also add from the centre
         for colour in utils.Tile:
-            features[colour] += state.centre_pool.tiles
+            features[colour] += state.centre_pool.tiles[colour]
 
         # add the number of tiles of each player that have been placed on the game board
         # access through self.agents
@@ -114,13 +121,13 @@ class DQNTrainModel:
         # 0 .. 4 av from fac
         # index 5 -> index 14 (inclusive)
         # NUM_PLAYERS * NUM_COLOR + NUM_COLOR = 2 * 5 + 5
-        players_filled_tiles = self.get_player_tiles()
+        players_filled_tiles = self.get_player_tiles(state)
         features[NUM_COLOR : NUM_PLAYERS * NUM_COLOR + NUM_COLOR] = players_filled_tiles
 
         # Add the current score of each player
         # self.score in agent state
         for i in range(NUM_PLAYERS):
-            player = self.agents[i]
+            player = state.agents[i]
             features[NUM_PLAYERS * NUM_COLOR + NUM_COLOR + i]  = player.score
         # Add the current round in the game
         # AgentState.agent_trace.round_scores
@@ -135,6 +142,7 @@ class DQNTrainModel:
         # Add the current player's id
         features[NUM_PLAYERS * NUM_COLOR + NUM_COLOR + NUM_PLAYERS + 1] = self.id
         return features
+    # TODO: may be wrong
     def get_player_tiles(self, state):
         # initialize a numpy array of size 5 with zeroes
         player_filled_tile = np.zeros((NUM_PLAYERS * NUM_COLOR, ))
@@ -165,7 +173,7 @@ class DQNTrainModel:
         # Get legal actions
         legal_actions = self.game_rule.getLegalActions(state, self.id)
         if np.random.rand() <= EPSILON:
-            return np.random.choice(legal_actions)
+            return random.choice(legal_actions)
         # TODO: need to change this
         # Extract relevant features for the Azul game state
         features = self.get_features(state)
@@ -188,96 +196,133 @@ class DQNTrainModel:
     def replay(self):
         if len(self.memory) < BATCH_SIZE:
             return
-        samples = random.sample(self.memory, BATCH_SIZE)
-        states, actions, rewards, next_states, dones = zip(*samples)
-        states = np.array(states)
-        actions = np.array(actions)
-        rewards = np.array(rewards)
-        next_states = np.array(next_states)
-        dones = np.array(dones)
-        q_values = self.model.predict(states)
-        target_q_values = self.target_model.predict(next_states)
-        max_q_values = np.max(target_q_values, axis=1)
-        target_q_values[dones, actions] = rewards[dones] + DISCOUNT_FACTOR * max_q_values[dones]
-        self.model.fit(states, target_q_values, epochs=1, verbose=0)
+        minibatch = random.sample(self.memory, BATCH_SIZE)
+        for state, action, reward, next_state in minibatch:
+            target = reward
+            target = reward + self.gamma * np.amax(self.target_model.predict(next_state)[0])
+            # compute the target q value for the current state and action
+            target_f = self.model.predict(state)
+            # train the model on the updated Q value
+            self.model.fit(state, target_f, epochs =  1, verbose = 0)
+        # update the target model weights
+        self.update_target_model()
+    def load(self, name):
+        # load the model weights from a file
+        self.model.load_weights(name)
+    def save(self, name):
+        # save the model weights to a file
+        self.model.save_weights(name)
+    def decay_epsilon(self):
+        self.epsilon = max(self.epsilon_min, self.epsilon_decay * self.epsilon)
 
-
-
-class DQNTrainFinalPhase: 
-    def __init__(self):
-        self.dt = DQNTrainModel()
-        self.game_rule =  GameRule(NUM_PLAYERS)
-    def train(self):
-        for episode in range(NUM_EPISODES):
-            # intialise everything needed for training
-            
-            # define the starting state
-            state = self.dt.azul_state()
-            total_reward = 0
-            done = False
-            while not done:
-                # select action
-                action = dt.act()
-                # there is no done, but action can be STARTROUND or ENDROUND
-                if action == "ENDROUND":
-                    done = True 
-                # emulate the action in env
-                # TOD0: missing agent id (when training), should i simulate states in 
-                # both player and enemy
-                successor_state = self.dt.game_rule.generateSuccessor(state, action)
-                reward = self.reward_function(successor_state)
-                # features should be extracted from state and successor_state
-                # before putting them into memory
-                curr_feature = self.dt.get_features(state)
-                next_feature = self.dt.get_features(successor_state)
-                self.dt.remember(curr_feature, action, reward, next_feature, done)
-                total_reward += reward
-                # move to the next state, how? 
-                # both current state and next state are azul states
-
-                # get the reward of this successor state
-                pass
-    def reward_function(self, state, successor_state):
+    def reward_function(self, state, successor_state, is_timed_out):
         # Reward for completing a row or a column
-        prev_score = state.GetCompletedRows() + state.GetCompletedColumns()
-        curr_score = successor_state.GetCompletedRows() + state.GetCompletedColumns()
+        # both state and successor_state are Azul state
+        prev_score = state.agents[self.id].GetCompletedRows() + state.agents[self.id].GetCompletedColumns()
+        curr_score = successor_state.agents[self.id].GetCompletedRows() + state.agents[self.id].GetCompletedColumns()
         # get the total number of actions taken so far in the game
-        num_moves = sum(len(round_actions) for round_actions in successor_state.agent_trace.actions)
+        num_moves = sum(len(round_actions) for round_actions in successor_state.agents[self.id].agent_trace.actions)
+        reward = 0
         if curr_score > prev_score:
-            reward = 10
-        
-        elif num_moves > MAX_MOVES:
-            reward = -10
-        # Reward for placing the tile in the correct position
+            reward += 10
         else:
-            reward = 1
+            reward += 1
+        if num_moves > MAX_MOVES:
+            reward += -10
+        # Reward for placing the tile in the correct position
+        if is_timed_out:
+            reward -= 10
+       
+
         return reward
+    def get_all_actions(self):
+         self.game_rule = AzulGameRule(NUM_PLAYERS)
+         all_possible_actions = self.game_rule.getLegalActions(self.game_rule.initialGameState(),0)
+         return all_possible_actions
+    def train(self):
+        all_possible_actions = self.get_all_actions()
+        self.agent1 = DQNAgent(0, all_possible_actions)
+        self.agent2 = DQNAgent(1, all_possible_actions)
+        for episode in range(NUM_EPISODES):
+                game = AdvancedGame(self.agent1, self.agent2)
+                game._run()
+                if episode % SAVE_FREQUENCY == 0:
+                    self.save("policymodel.h5")
+                    
+
+
+ 
+        
+    
     
 class AdvancedGame:
-    def __init__(self):
-        self.game_rule = GameRule(NUM_PLAYERS)
-        self.game_master = DummyAgent()
-        self.random_agent = random.myAgent(0)
-        self.DQN_agent = DQNTrainModel(1)
-        self.agent_list = list()
-        self.agent_list.append(self.random_agent)
-        self.agent_list.append(self.DQN_agent)
-        self.agents = self.agent_list
+    def __init__(self, _agent1, _agent2):
+        self.game_rule = AzulGameRule(NUM_PLAYERS)
+        self.agent1 = _agent1
+        self.agent2 = _agent2
         self.time_limit = 1
+        # An agent state is initialised if there is a azulstate
+        # but how does it connect with the agent defined
+        self.time_limit = 1
+     
+        self.agent_list = list()
+        self.agent_list.append(self.agent1)
+        self.agent_list.append(self.agent2)
     def _run(self):
-        # run one episode
-        # define the two agents
        
-        while not self.game_rule.gameEnds:
-            agent_index = self.game_rule.getCurrentAgentIndex()
-            agent = self.agents[agent_index] if agent_index < len(self.agents) else self.gamemaster
-            game_state = self.game_rule.current_game_state
-            actions = self.game_rule.getLegalActions(game_state, agent_index)
-            actions_copy = copy.deepcopy(actions)
-            gs_copy = copy.deepcopy(game_state)
-            selected = func_timeout(self.time_limit, agent.SelectMove(), args=(actions_copy, gs_copy))
-            if(agent_index == 0):
-                pass
+
+        # run one episode
+        # use self-play strategy
+        # define the two agents
+        state = self.game_rule.current_game_state
+        agent_turn = 0
+        print("Start game")
+        # start round for all players
+        for player in state.agents:
+            player.agent_trace.StartRound()
+
+        while not self.game_rule.gameEnds():
+            current_agent = self.agent_list[agent_turn]
+            # give one second limit to choose action
+            is_timed_out = False
+            try: 
+                action = func_timeout(self.time_limit, current_agent.act, args= (state,))
+            except: 
+                action = current_agent.act(state)
+                is_timed_out = True
            
+            # successor state
+            #self.game_rule.update(action)
+            print(len(state.agents))
+            print("Agent turn: ", agent_turn)
+            print("Agent trace: ", state.agents[agent_turn].agent_trace.actions)
+            next_state = self.game_rule.generateSuccessor(state,action,agent_turn)
+            reward = current_agent.reward_function(state, next_state, is_timed_out)
+            # features should be extracted from state and successor_state
+            # before putting them into memory
+            curr_feature = current_agent.get_features(state)
+            next_feature = current_agent.get_features(self.game_rule.current_game_state)
+            current_agent.remember(curr_feature, action, reward, next_feature)
+            current_agent.replay()
+            # update the state variable
+            state = self.game_rule.current_game_state
+            # update the agent id
+            agent_turn = (agent_turn + 1) % NUM_PLAYERS
+            if current_agent.epsilon > current_agent.epsilon_min:
+                current_agent.decay_epsilon()
+
+# class ActualDQNAgent:
+
+      
+if __name__ == "__main__":  
+    # testing for one episode
+    game_rule = AzulGameRule(NUM_PLAYERS)
+    all_possible_actions = game_rule.getLegalActions(game_rule.initialGameState(),1)
+    # print(all_possible_actions)
+    agent1 = DQNAgent(0, all_possible_actions)
+    agent2 = DQNAgent(1, all_possible_actions)
+    game = AdvancedGame(agent1, agent2)
+    game._run()
+
 
         
