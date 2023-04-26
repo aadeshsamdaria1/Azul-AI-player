@@ -3,6 +3,10 @@ import Azul.azul_utils as utils
 import numpy as np
 import tensorflow as tf 
 import random
+from agents.generic import random
+from template import Agent as DummyAgent
+import copy
+from   func_timeout import func_timeout, FunctionTimedOut
 THINK_TIME = 0.9
 NUM_PLAYERS = 2
 NUM_COLOR = 5
@@ -34,7 +38,7 @@ MAX_MOVES = 50
 #       9. GRADIENT DESCENT UPDATES WEIGHTS IN THE POLICY NETWORK TO MINIMIZE LOSS
 
 class DQNTrainModel:
-        
+        # game_rule.current_game_state
     def init(self, _id):
         self.id = _id # The agent needs to remember its own id
         # double-ended queue used in the replay buffer of the DQN algorithm. It stores the transitions
@@ -42,24 +46,23 @@ class DQNTrainModel:
         self.memory = []
         self.game_rule = GameRule(NUM_PLAYERS)
         self.azul_state = self.game_rule.initialGameState()
-        self.agents = self.azul_state.agents # remain the same throughout the game
         # getlegalactions need gamestate
         # gamestate is azul_state
         self.all_possible_actions = self.game_rule.getLegalActions(self.azul_state, self.id)
         self.num_actions = len(self.all_possible_actions)
-        # prediction network
+        # policy network
         self.model = self.build_model(self.num_actions)
         # target network
         self.target_model = self.build_model(self.num_actions)
+        # initialize the weights from both policy network and target network
 
 
 
     def build_model(self, num_actions):
-        # TODO: change input dimension?
         model = tf.keras.Sequential([
-            tf.keras.layers.Dense(32, input_dim=18, activation='relu'),
-            tf.keras.layers.Dense(32, activation='relu'),
-            tf.keras.layers.Dense(num_actions)
+            tf.keras.layers.Dense(32, input_dim=18, activation='relu', kernel_initializer='random_normal'),
+            tf.keras.layers.Dense(32, activation='relu', kernel_initializer='random_normal'),
+            tf.keras.layers.Dense(num_actions, kernel_initializer='random_normal')
         ])
         model.compile(loss='mse', optimizer=tf.keras.optimizers.Adam())
         return model
@@ -73,7 +76,7 @@ class DQNTrainModel:
         self.memory.append((state, action, reward, next_state, done))
         if len(self.memory) > MEMORY_CAPACITY:
             self.memory.pop(0)
-    def get_features(self):
+    def get_features(self, state):
         # Extract relevant features for the Azul game state
 
         # Initialize the feature vector with zeroes
@@ -93,7 +96,7 @@ class DQNTrainModel:
         # add available tiles from the factory first
         # get the total tiles from all factories for later use
         factory_tile_count = 0
-        for factory in self.azul_state.factories: 
+        for factory in state.factories: 
             for colour in utils.Tile:
                 features[colour] = factory.tiles[colour]
                 factory_tile_count += factory.tiles[colour]
@@ -102,7 +105,7 @@ class DQNTrainModel:
                 # factory.tiles
         # also add from the centre
         for colour in utils.Tile:
-            features[colour] += self.azul_state.centre_pool.tiles
+            features[colour] += state.centre_pool.tiles
 
         # add the number of tiles of each player that have been placed on the game board
         # access through self.agents
@@ -121,7 +124,7 @@ class DQNTrainModel:
             features[NUM_PLAYERS * NUM_COLOR + NUM_COLOR + i]  = player.score
         # Add the current round in the game
         # AgentState.agent_trace.round_scores
-        current_agent = self.agents[self.id]
+        current_agent = state.agents[self.id]
 
         # records the scores in each round
         # if the length of round_scores is 5, it means 5 rounds have been completed and 
@@ -132,11 +135,11 @@ class DQNTrainModel:
         # Add the current player's id
         features[NUM_PLAYERS * NUM_COLOR + NUM_COLOR + NUM_PLAYERS + 1] = self.id
         return features
-    def get_player_tiles(self):
+    def get_player_tiles(self, state):
         # initialize a numpy array of size 5 with zeroes
         player_filled_tile = np.zeros((NUM_PLAYERS * NUM_COLOR, ))
         for i in range(NUM_PLAYERS):
-            player = self.agents[i]
+            player = state.agents[i]
             # go through each line of the board
             for j in range(GRID_SIZE):
                 # if the tile is at least filled with one colour
@@ -165,7 +168,7 @@ class DQNTrainModel:
             return np.random.choice(legal_actions)
         # TODO: need to change this
         # Extract relevant features for the Azul game state
-        features = self.get_features()
+        features = self.get_features(state)
         # Reshape the feature vector to be used as an input to the model
         features = features.reshape(1, -1)
         # Use the model to get Q-values for the current state
@@ -201,26 +204,33 @@ class DQNTrainModel:
 
 
 class DQNTrainFinalPhase: 
+    def __init__(self):
+        self.dt = DQNTrainModel()
+        self.game_rule =  GameRule(NUM_PLAYERS)
     def train(self):
         for episode in range(NUM_EPISODES):
             # intialise everything needed for training
-            dt = DQNTrainModel()
+            
+            # define the starting state
+            state = self.dt.azul_state()
             total_reward = 0
             done = False
             while not done:
                 # select action
-                curr_feature = dt.get_features()
                 action = dt.act()
                 # there is no done, but action can be STARTROUND or ENDROUND
                 if action == "ENDROUND":
                     done = True 
                 # emulate the action in env
-                successor_state = dt.game_rule.generateSuccessor()
+                # TOD0: missing agent id (when training), should i simulate states in 
+                # both player and enemy
+                successor_state = self.dt.game_rule.generateSuccessor(state, action)
                 reward = self.reward_function(successor_state)
-                next_feature = dt.get_features()
                 # features should be extracted from state and successor_state
                 # before putting them into memory
-                dt.remember(curr_feature, action, reward, next_feature, done)
+                curr_feature = self.dt.get_features(state)
+                next_feature = self.dt.get_features(successor_state)
+                self.dt.remember(curr_feature, action, reward, next_feature, done)
                 total_reward += reward
                 # move to the next state, how? 
                 # both current state and next state are azul states
@@ -242,5 +252,32 @@ class DQNTrainFinalPhase:
         else:
             reward = 1
         return reward
+    
+class AdvancedGame:
+    def __init__(self):
+        self.game_rule = GameRule(NUM_PLAYERS)
+        self.game_master = DummyAgent()
+        self.random_agent = random.myAgent(0)
+        self.DQN_agent = DQNTrainModel(1)
+        self.agent_list = list()
+        self.agent_list.append(self.random_agent)
+        self.agent_list.append(self.DQN_agent)
+        self.agents = self.agent_list
+        self.time_limit = 1
+    def _run(self):
+        # run one episode
+        # define the two agents
+       
+        while not self.game_rule.gameEnds:
+            agent_index = self.game_rule.getCurrentAgentIndex()
+            agent = self.agents[agent_index] if agent_index < len(self.agents) else self.gamemaster
+            game_state = self.game_rule.current_game_state
+            actions = self.game_rule.getLegalActions(game_state, agent_index)
+            actions_copy = copy.deepcopy(actions)
+            gs_copy = copy.deepcopy(game_state)
+            selected = func_timeout(self.time_limit, agent.SelectMove(), args=(actions_copy, gs_copy))
+            if(agent_index == 0):
+                pass
+           
 
         
