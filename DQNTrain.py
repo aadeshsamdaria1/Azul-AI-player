@@ -208,8 +208,10 @@ class DQNAgent:
         # Get legal actions
         legal_actions = self.game_rule.getLegalActions(state, self.id)
         #print("Legal actions: ", legal_actions)
-        if np.random.rand() <= EPSILON:
+
+        if np.random.rand() <= self.epsilon:
             return random.choice(legal_actions)
+
         # TODO: need to change this
         # Extract relevant features for the Azul game state
         features = self.get_features(state)
@@ -219,10 +221,17 @@ class DQNAgent:
         q_values = self.model.predict(features)[0]
         # set q-values for unavailable actions to very low values
         
+        # TODO: test this part 
         # flatten the legal actions
         max_q_val = float("-inf")
+        # need to account for end action
+        if len(legal_actions) == 1:
+            return legal_actions
         for action in legal_actions:
-            action_type, id, tg = action
+            # too many values to unpack
+            action_type = action[0]
+            id = action[1]
+            tg = action[2]
             tile_type = tg.tile_type
             num_tiles = tg.number
             pattern_line_dest = tg.pattern_line_dest
@@ -269,10 +278,17 @@ class DQNAgent:
             # find the index of the action
             # flatten the action
             # 8 action components
+
+            # ignore endround actions in replay, they are not in the deepqlearninf output
+            if action == "ENDROUND":
+                continue
             action_type = action[0]
             id = action[1]
-            tg = action[2]
-            num_tiles = tg.number
+            try:
+                tg = action[2]
+                num_tiles = tg.number
+            except:
+                print("tg: ", tg)
             tile_type = tg.tile_type
             pattern_line_dest = tg.pattern_line_dest
             num_to_pattern_line = tg.num_to_pattern_line
@@ -282,9 +298,13 @@ class DQNAgent:
             # num_to_pattern_line: 0
             # num_to_floor_line: 2
             # print("Action dictionary: ", self.action_encoder.action_dict)
-            action_index = self.action_encoder.action_dict[(action_type, id, tile_type, num_tiles, pattern_line_dest, num_to_pattern_line, num_to_floor_line)]
-            target_data[i][action_index] = target
+            try:
+                action_index = self.action_encoder.action_dict[(action_type, id, tile_type, num_tiles, pattern_line_dest, num_to_pattern_line, num_to_floor_line)]
+                target_data[i][action_index] = target
             # need to get the index of this action 
+            except:
+                print("Action with error: ", (action_type, id, tile_type, num_tiles, pattern_line_dest, num_to_pattern_line, num_to_floor_line))
+                continue
         self.model.fit(input_data, target_data, epochs=1, verbose=0)
         self.update_target_model()
     def load(self, name):
@@ -359,6 +379,7 @@ class AdvancedGame:
         # define the two agents
         state = self.game_rule.current_game_state
         agent_turn = 0
+        first_player_token  = 0
         print("Start game")
         # start round for all players
         for player in state.agents:
@@ -373,14 +394,6 @@ class AdvancedGame:
             except: 
                 action = current_agent.act(state)
                 is_timed_out = True
-            if action == "ENDROUND":
-                print("End of round")
-                for player in state.agents:
-                    player.agent_trace.StartRound()
-                for fd in state.factories:
-                    state.InitialiseFactory(fd)
-                for tile in utils.Tile:
-                    state.centre_pool.tiles[tile] = 0
             # successor state
             #self.game_rule.update(action)
             # print(len(state.agents))
@@ -396,11 +409,24 @@ class AdvancedGame:
             current_agent.replay()
             # update the state variable
             state = next_state
+            if action == "ENDROUND":
+                print("End of round")
+                for player in state.agents:
+                    player.agent_trace.StartRound()
+                for fd in state.factories:
+                    state.InitialiseFactory(fd)
+                for tile in utils.Tile:
+                    state.centre_pool.tiles[tile] = 0
+                first_player_token = (first_player_token + 1) % NUM_PLAYERS
             # update the agent id
-            agent_turn = (agent_turn + 1) % NUM_PLAYERS
+            if action == "ENDROUND":
+                agent_turn = first_player_token
+            else:
+                agent_turn = (agent_turn + 1) % NUM_PLAYERS
             
             done = self.game_rule.gameEnds()
             # calScore
+        print("End game")
         agent_1_complete_reward = self.game_rule.calScore(state,0)
         agent_2_complete_reward = self.game_rule.calScore(state, 1)
         return [agent_1_complete_reward, agent_2_complete_reward]
