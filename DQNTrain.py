@@ -7,6 +7,7 @@ import random
 from template import Agent as DummyAgent
 import copy
 from   func_timeout import func_timeout, FunctionTimedOut
+
 THINK_TIME = 0.9
 NUM_PLAYERS = 2
 NUM_COLOR = 5
@@ -24,6 +25,7 @@ SAVE_FREQUENCY = 10
 # can take anywhere from 20 to 40 per player
 MAX_MOVES = 50
 GAMMA = 0.955
+NUM_FACTORIES = 5
 # DEEPQ LEARNING ALGORITHM
 # 1. INITIALIZE REPLAY MEMORY CAPACITY
 # 2. INITIALIZE THE NETWORK WITH RANDOM WEIGHTS
@@ -39,6 +41,74 @@ GAMMA = 0.955
 #       7. PASS BATCH OF PREPROCESSED STATES TO THE POLICY NETWORK
 #       8. CALCULATE LOSS BETWEEN OUTPUT Q-VALUES AND TARGET Q-VALUES
 #       9. GRADIENT DESCENT UPDATES WEIGHTS IN THE POLICY NETWORK TO MINIMIZE LOSS
+class ActionEncoder:
+    # missing one element, num_avail
+    # In a 2-player game of Azul, the number of tiles that each type can occur is at most 5, since there are
+    # only 20 tiles of each type in a game
+    def map_action(self):
+        self.action_dict = {}
+        index = 0  
+        for factory_id in range(NUM_FACTORIES):
+            for tile_type in utils.Tile:
+                for num_tiles in range(6):
+                    for pattern_line_dest in range(GRID_SIZE):
+                        for num_to_pattern_line in range(1, GRID_SIZE + 1):
+                            for num_to_floor_line in range(num_to_pattern_line, 5):
+                                self.action_dict[(factory_id, tile_type, num_tiles, pattern_line_dest, num_to_pattern_line, num_to_floor_line)] = index
+                                index += 1
+        # include taking from centre actions
+        for tile_type in utils.Tile:
+            for num_tiles in range(1,21):
+                for pattern_line_dest in range(GRID_SIZE):
+                        for num_to_pattern_line in range(1, GRID_SIZE + 1):
+                            for num_to_floor_line in range(num_to_pattern_line, 5):
+                                self.action_dict[(-1, tile_type, num_tiles, pattern_line_dest, num_to_pattern_line, num_to_floor_line)] = index
+                                index += 1
+        # Get the total number of possible actions
+        self.num_actions = len(self.action_dict)
+
+    def one_hot_encoding(self):
+        # Loop over all the possible actions and creating a one-hot encoding for that action
+        self.actions = []
+        for factory_id in range(NUM_FACTORIES):
+            for tile_type in utils.Tile:
+                for num_tiles in range(6):
+                    for pattern_line_dest in range(GRID_SIZE):
+                            for num_to_pattern_line in range(1, GRID_SIZE + 1):
+                                for num_to_floor_line in range(num_to_pattern_line, 5):
+                                    action = (factory_id, tile_type, num_tiles, pattern_line_dest, num_to_pattern_line, num_to_floor_line)
+                                    action_index = self.action_dict[action]
+                                    one_hot = np.zeros(self.num_actions)
+                                    one_hot[action_index] = 1
+                                    self.actions.append(one_hot)
+        # include taking from centre actions
+        for tile_type in utils.Tile:
+            for num_tiles in range(6):
+                for pattern_line_dest in range(GRID_SIZE):
+                    for num_to_pattern_line in range(1, GRID_SIZE + 1):
+                        for num_to_floor_line in range(num_to_pattern_line, 5):
+                            action = (-1, tile_type, num_tiles, pattern_line_dest, num_to_pattern_line, num_to_floor_line)
+                            action_index = self.action_dict[action]
+                            one_hot = np.zeros(self.num_actions)
+                            one_hot[action_index] = 1
+                            self.actions.append(one_hot)
+
+            
+    def one_hot_to_actualaction(self, one_hot_encoding):
+        # one hot encoding is an np array of zeroes
+        index = np.argmax(one_hot_encoding)
+        for key, value in self.action_dict.items():
+            if value == index:
+                flattened_action = key
+            pass
+        id, tile_type, num_avail, pattern_line_dest, num_to_pattern_line, num_to_floor_line = flattened_action
+        tg =  utils.TileGrab()
+        tg.tile_type = tile_type
+        tg.number = num_avail
+        tg.num_to_floor_line = num_to_floor_line
+        tg.num_to_pattern_line = num_to_pattern_line
+        tg.pattern_line_dest = pattern_line_dest
+
 
 class DQNAgent:
         # game_rule.current_game_state
@@ -48,6 +118,7 @@ class DQNAgent:
         # experienced by the agent, which consist of state, action, reward, next state and whether the next state is terminal
         self.memory = []
         self.gamma =  GAMMA
+        # learning rate is not used
         self.learning_rate = LEARNING_RATE
         self.epsilon = EPSILON
         self.epsilon_decay = EPSILON_DECAY
@@ -61,15 +132,18 @@ class DQNAgent:
         self.model = self.build_model(self.num_actions)
         # target network
         self.target_model = self.build_model(self.num_actions)
+        self.action_encoder = ActionEncoder()
+        self.action_encoder.map_action()
+        self.action_encoder.one_hot_encoding()
         # initialize the weights from both policy network and target network
 
 
 
     def build_model(self, num_actions):
         model = tf.keras.Sequential([
-            tf.keras.layers.Dense(32, input_dim=18, activation='relu', kernel_initializer='random_normal'),
+            tf.keras.layers.Dense(32, input_shape=(19,), activation='relu', kernel_initializer='random_normal'),
             tf.keras.layers.Dense(32, activation='relu', kernel_initializer='random_normal'),
-            tf.keras.layers.Dense(num_actions, kernel_initializer='random_normal')
+            tf.keras.layers.Dense(self.action_encoder.num_actions, kernel_initializer='random_normal')
         ])
         model.compile(loss='mse', optimizer=tf.keras.optimizers.Adam())
         return model
@@ -79,8 +153,8 @@ class DQNAgent:
 
     # the append method is used to add transition into memory , and when the memory is full,
     # the oldest memory is removed
-    def remember(self, state, action, reward, next_state):
-        self.memory.append((state, action, reward, next_state))
+    def remember(self, state, action, reward, next_state, done):
+        self.memory.append((state, action, reward, next_state, done))
         if len(self.memory) > MEMORY_CAPACITY:
             self.memory.pop(0)
     def get_features(self, state):
@@ -96,8 +170,8 @@ class DQNAgent:
 
         # Initialize the feature vector with zeros
         # 5 + 5 * 2 + 2 + 1
-        features = np.zeros((NUM_COLOR + NUM_COLOR * NUM_PLAYERS + NUM_PLAYERS + 1, ))
-
+        features = np.zeros((NUM_COLOR + NUM_COLOR * NUM_PLAYERS + NUM_PLAYERS + 2, ))
+        #print("Actual size: ", len(features))
         # Add the number of tiles in each colour that have not yet been placed on the game board
 
         # add available tiles from the factory first
@@ -140,6 +214,7 @@ class DQNAgent:
         current_round = len(round_scores) + 1
         features[NUM_PLAYERS * NUM_COLOR + NUM_COLOR + NUM_PLAYERS] = current_round
         # Add the current player's id
+        #print("Accessed index: ", NUM_PLAYERS * NUM_COLOR + NUM_COLOR + NUM_PLAYERS + 1)
         features[NUM_PLAYERS * NUM_COLOR + NUM_COLOR + NUM_PLAYERS + 1] = self.id
         return features
     # TODO: may be wrong
@@ -172,6 +247,7 @@ class DQNAgent:
         
         # Get legal actions
         legal_actions = self.game_rule.getLegalActions(state, self.id)
+        #print("Legal actions: ", legal_actions)
         if np.random.rand() <= EPSILON:
             return random.choice(legal_actions)
         # TODO: need to change this
@@ -197,14 +273,23 @@ class DQNAgent:
         if len(self.memory) < BATCH_SIZE:
             return
         minibatch = random.sample(self.memory, BATCH_SIZE)
-        for state, action, reward, next_state in minibatch:
-            target = reward
-            target = reward + self.gamma * np.amax(self.target_model.predict(next_state)[0])
-            # compute the target q value for the current state and action
-            target_f = self.model.predict(state)
-            # train the model on the updated Q value
-            self.model.fit(state, target_f, epochs =  1, verbose = 0)
-        # update the target model weights
+        input_data = np.array([data[0] for data in minibatch])
+        target_data = self.model.predict(input_data)
+        print("Done")
+        for i, (state, action, reward, next_state, done) in enumerate(minibatch):
+            print("Next state shape: ", next_state.shape)
+            # target = reward + self.gamma * np.amax(self.target_model.predict(next_state)[0])
+            if not done: 
+                next_target = np.max(self.model.predict(np.array([next_state]))[0])
+                print("Next target predicted")
+                target = reward + self.gamma * next_target
+                
+            else: 
+                target = reward
+            action_index = self.all_possible_actions.index(action)
+            target_data[i][action_index] = target
+            # need to get the index of this action 
+        self.model.fit(input_data, target_data, epochs=1, verbose=0)
         self.update_target_model()
     def load(self, name):
         # load the model weights from a file
@@ -246,8 +331,14 @@ class DQNAgent:
         for episode in range(NUM_EPISODES):
                 game = AdvancedGame(self.agent1, self.agent2)
                 game._run()
+                if self.agent1.epsilon > self.agent1.epsilon_min:
+                    self.agent1.decay_epsilon()
+                if self.agent2.epsilon > self.agent2.epsilon_min:
+                    self.agent2.decay_epsilon()
                 if episode % SAVE_FREQUENCY == 0:
-                    self.save("policymodel.h5")
+                    # save the policy for both agents
+                    self.agent1.save("policymodel1.h5")
+                    self.agent2.save("policymodel2.h5")
                     
 
 
@@ -260,6 +351,7 @@ class AdvancedGame:
         self.game_rule = AzulGameRule(NUM_PLAYERS)
         self.agent1 = _agent1
         self.agent2 = _agent2
+        self.game_master = DummyAgent(NUM_PLAYERS) # Used for signalling rounds in Azul
         self.time_limit = 1
         # An agent state is initialised if there is a azulstate
         # but how does it connect with the agent defined
@@ -280,8 +372,8 @@ class AdvancedGame:
         # start round for all players
         for player in state.agents:
             player.agent_trace.StartRound()
-
-        while not self.game_rule.gameEnds():
+        done = False
+        while not done:
             current_agent = self.agent_list[agent_turn]
             # give one second limit to choose action
             is_timed_out = False
@@ -290,34 +382,44 @@ class AdvancedGame:
             except: 
                 action = current_agent.act(state)
                 is_timed_out = True
-           
+            if action == "ENDROUND":
+                print("End of round")
+                for player in state.agents:
+                    player.agent_trace.StartRound()
+                for fd in state.factories:
+                    state.InitialiseFactory(fd)
+                for tile in utils.Tile:
+                    state.centre_pool.tiles[tile] = 0
             # successor state
             #self.game_rule.update(action)
-            print(len(state.agents))
-            print("Agent turn: ", agent_turn)
-            print("Agent trace: ", state.agents[agent_turn].agent_trace.actions)
+            # print(len(state.agents))
+            # print("Agent turn: ", agent_turn)
+            # print("Agent trace: ", state.agents[agent_turn].agent_trace.actions)
             next_state = self.game_rule.generateSuccessor(state,action,agent_turn)
             reward = current_agent.reward_function(state, next_state, is_timed_out)
             # features should be extracted from state and successor_state
             # before putting them into memory
             curr_feature = current_agent.get_features(state)
-            next_feature = current_agent.get_features(self.game_rule.current_game_state)
-            current_agent.remember(curr_feature, action, reward, next_feature)
+            next_feature = current_agent.get_features(next_state)
+            current_agent.remember(curr_feature, action, reward, next_feature, done)
             current_agent.replay()
             # update the state variable
-            state = self.game_rule.current_game_state
+            state = next_state
             # update the agent id
             agent_turn = (agent_turn + 1) % NUM_PLAYERS
-            if current_agent.epsilon > current_agent.epsilon_min:
-                current_agent.decay_epsilon()
-
+            
+            done = self.game_rule.gameEnds()
+            # calScore
+        agent_1_complete_reward = self.game_rule.calScore(state,0)
+        agent_2_complete_reward = self.game_rule.calScore(state, 1)
+        return [agent_1_complete_reward, agent_2_complete_reward]
 # class ActualDQNAgent:
 
       
 if __name__ == "__main__":  
     # testing for one episode
     game_rule = AzulGameRule(NUM_PLAYERS)
-    all_possible_actions = game_rule.getLegalActions(game_rule.initialGameState(),1)
+    all_possible_actions = game_rule.getLegalActions(game_rule.initialGameState(),0)
     # print(all_possible_actions)
     agent1 = DQNAgent(0, all_possible_actions)
     agent2 = DQNAgent(1, all_possible_actions)
