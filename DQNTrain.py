@@ -51,68 +51,29 @@ class ActionEncoder:
         for factory_id in range(NUM_FACTORIES):
             for tile_type in utils.Tile:
                 for num_tiles in range(6):
-                    for pattern_line_dest in range(GRID_SIZE):
-                        for num_to_pattern_line in range(1, GRID_SIZE + 1):
-                            for num_to_floor_line in range(num_to_pattern_line, 5):
-                                self.action_dict[(factory_id, tile_type, num_tiles, pattern_line_dest, num_to_pattern_line, num_to_floor_line)] = index
+                    for pattern_line_dest in range(-1, GRID_SIZE):
+                        for num_to_pattern_line in range(0, GRID_SIZE + 1):
+                            for num_to_floor_line in range(0, GRID_SIZE + 1):
+                                action_type = utils.Action.TAKE_FROM_FACTORY
+                                self.action_dict[(action_type, factory_id, tile_type, num_tiles, pattern_line_dest, num_to_pattern_line, num_to_floor_line)] = index
                                 index += 1
         # include taking from centre actions
         for tile_type in utils.Tile:
             for num_tiles in range(1,21):
-                for pattern_line_dest in range(GRID_SIZE):
-                        for num_to_pattern_line in range(1, GRID_SIZE + 1):
-                            for num_to_floor_line in range(num_to_pattern_line, 5):
-                                self.action_dict[(-1, tile_type, num_tiles, pattern_line_dest, num_to_pattern_line, num_to_floor_line)] = index
+                for pattern_line_dest in range(-1, GRID_SIZE):
+                        for num_to_pattern_line in range(0, GRID_SIZE + 1):
+                            for num_to_floor_line in range(0, GRID_SIZE + 1):
+                                action_type = utils.Action.TAKE_FROM_CENTRE
+                                self.action_dict[(action_type, -1, tile_type, num_tiles, pattern_line_dest, num_to_pattern_line, num_to_floor_line)] = index
                                 index += 1
         # Get the total number of possible actions
         self.num_actions = len(self.action_dict)
-
-    def one_hot_encoding(self):
-        # Loop over all the possible actions and creating a one-hot encoding for that action
-        self.actions = []
-        for factory_id in range(NUM_FACTORIES):
-            for tile_type in utils.Tile:
-                for num_tiles in range(6):
-                    for pattern_line_dest in range(GRID_SIZE):
-                            for num_to_pattern_line in range(1, GRID_SIZE + 1):
-                                for num_to_floor_line in range(num_to_pattern_line, 5):
-                                    action = (factory_id, tile_type, num_tiles, pattern_line_dest, num_to_pattern_line, num_to_floor_line)
-                                    action_index = self.action_dict[action]
-                                    one_hot = np.zeros(self.num_actions)
-                                    one_hot[action_index] = 1
-                                    self.actions.append(one_hot)
-        # include taking from centre actions
-        for tile_type in utils.Tile:
-            for num_tiles in range(6):
-                for pattern_line_dest in range(GRID_SIZE):
-                    for num_to_pattern_line in range(1, GRID_SIZE + 1):
-                        for num_to_floor_line in range(num_to_pattern_line, 5):
-                            action = (-1, tile_type, num_tiles, pattern_line_dest, num_to_pattern_line, num_to_floor_line)
-                            action_index = self.action_dict[action]
-                            one_hot = np.zeros(self.num_actions)
-                            one_hot[action_index] = 1
-                            self.actions.append(one_hot)
-
-            
-    def one_hot_to_actualaction(self, one_hot_encoding):
-        # one hot encoding is an np array of zeroes
-        index = np.argmax(one_hot_encoding)
-        for key, value in self.action_dict.items():
-            if value == index:
-                flattened_action = key
-            pass
-        id, tile_type, num_avail, pattern_line_dest, num_to_pattern_line, num_to_floor_line = flattened_action
-        tg =  utils.TileGrab()
-        tg.tile_type = tile_type
-        tg.number = num_avail
-        tg.num_to_floor_line = num_to_floor_line
-        tg.num_to_pattern_line = num_to_pattern_line
-        tg.pattern_line_dest = pattern_line_dest
-
+        # for index lookup
+        self.reverse_action_dict = {value : key for key, value in self.action_dict.items()}
 
 class DQNAgent:
         # game_rule.current_game_state
-    def __init__(self, _id, _all_possible_actions):
+    def __init__(self, _id):
         self.id = _id # The agent needs to remember its own id
         # double-ended queue used in the replay buffer of the DQN algorithm. It stores the transitions
         # experienced by the agent, which consist of state, action, reward, next state and whether the next state is terminal
@@ -126,20 +87,19 @@ class DQNAgent:
         self.game_rule = AzulGameRule(NUM_PLAYERS)
         # getlegalactions need gamestate
         # gamestate is azul_state
-        self.all_possible_actions = _all_possible_actions
-        self.num_actions = len(self.all_possible_actions)
         # policy network
-        self.model = self.build_model(self.num_actions)
-        # target network
-        self.target_model = self.build_model(self.num_actions)
         self.action_encoder = ActionEncoder()
         self.action_encoder.map_action()
-        self.action_encoder.one_hot_encoding()
+        # with open("action_dict.txt", "w") as f:
+        #     f.write(str(self.action_encoder.action_dict))
+        self.model = self.build_model()
+        # target network
+        self.target_model = self.build_model()
         # initialize the weights from both policy network and target network
 
 
 
-    def build_model(self, num_actions):
+    def build_model(self):
         model = tf.keras.Sequential([
             tf.keras.layers.Dense(32, input_shape=(19,), activation='relu', kernel_initializer='random_normal'),
             tf.keras.layers.Dense(32, activation='relu', kernel_initializer='random_normal'),
@@ -258,12 +218,32 @@ class DQNAgent:
         # Use the model to get Q-values for the current state
         q_values = self.model.predict(features)[0]
         # set q-values for unavailable actions to very low values
-        for i in range(self.num_actions):
-            if self.all_possible_actions[i] not in legal_actions:
-                q_values[i] = -9999
-        # choose an action with the highest Q-value
-        highest_q_index = np.argmax(q_values)
-        return self.all_possible_actions[highest_q_index]
+        
+        # flatten the legal actions
+        max_q_val = float("-inf")
+        for action in legal_actions:
+            action_type, id, tg = action
+            tile_type = tg.tile_type
+            num_tiles = tg.number
+            pattern_line_dest = tg.pattern_line_dest
+            num_to_pattern_line = tg.num_to_pattern_line
+            num_to_floor_line = tg.num_to_floor_line
+            index = self.action_encoder.action_dict[(action_type, id, tile_type, num_tiles, pattern_line_dest, num_to_pattern_line, num_to_floor_line)]
+            # get this index from the q-values
+            q_val = q_values[index]
+            if q_val > max_q_val:
+                max_q_index = index
+        # find the flattened action
+        flattened_action = self.action_encoder.reverse_action_dict[max_q_index]
+        # convert the flatenned action back to actual action
+        action_type, id, tile_type, num_avail, pattern_line_dest, num_to_pattern_line, num_to_floor_line = flattened_action
+        tg =  utils.TileGrab()
+        tg.tile_type = tile_type
+        tg.number = num_avail
+        tg.num_to_floor_line = num_to_floor_line
+        tg.num_to_pattern_line = num_to_pattern_line
+        tg.pattern_line_dest = pattern_line_dest
+        return(action_type, id, tg)
 
     # replay function is responsible for training the neural network based on a batch of experiences 
     # sampled randomly from the agent's memory. This is done in order to update the Q-values of the neural 
@@ -277,16 +257,32 @@ class DQNAgent:
         target_data = self.model.predict(input_data)
         print("Done")
         for i, (state, action, reward, next_state, done) in enumerate(minibatch):
-            print("Next state shape: ", next_state.shape)
+            # print("Next state shape: ", next_state.shape)
             # target = reward + self.gamma * np.amax(self.target_model.predict(next_state)[0])
             if not done: 
                 next_target = np.max(self.model.predict(np.array([next_state]))[0])
-                print("Next target predicted")
+                # print("Next target predicted")
                 target = reward + self.gamma * next_target
                 
             else: 
                 target = reward
-            action_index = self.all_possible_actions.index(action)
+            # find the index of the action
+            # flatten the action
+            # 8 action components
+            action_type = action[0]
+            id = action[1]
+            tg = action[2]
+            num_tiles = tg.number
+            tile_type = tg.tile_type
+            pattern_line_dest = tg.pattern_line_dest
+            num_to_pattern_line = tg.num_to_pattern_line
+            num_to_floor_line = tg.num_to_floor_line
+            # num_tiles : 2
+            # pattern_line_dest : 0
+            # num_to_pattern_line: 0
+            # num_to_floor_line: 2
+            # print("Action dictionary: ", self.action_encoder.action_dict)
+            action_index = self.action_encoder.action_dict[(action_type, id, tile_type, num_tiles, pattern_line_dest, num_to_pattern_line, num_to_floor_line)]
             target_data[i][action_index] = target
             # need to get the index of this action 
         self.model.fit(input_data, target_data, epochs=1, verbose=0)
@@ -320,14 +316,9 @@ class DQNAgent:
        
 
         return reward
-    def get_all_actions(self):
-         self.game_rule = AzulGameRule(NUM_PLAYERS)
-         all_possible_actions = self.game_rule.getLegalActions(self.game_rule.initialGameState(),0)
-         return all_possible_actions
     def train(self):
-        all_possible_actions = self.get_all_actions()
-        self.agent1 = DQNAgent(0, all_possible_actions)
-        self.agent2 = DQNAgent(1, all_possible_actions)
+        self.agent1 = DQNAgent(0)
+        self.agent2 = DQNAgent(1)
         for episode in range(NUM_EPISODES):
                 game = AdvancedGame(self.agent1, self.agent2)
                 game._run()
@@ -419,10 +410,8 @@ class AdvancedGame:
 if __name__ == "__main__":  
     # testing for one episode
     game_rule = AzulGameRule(NUM_PLAYERS)
-    all_possible_actions = game_rule.getLegalActions(game_rule.initialGameState(),0)
-    # print(all_possible_actions)
-    agent1 = DQNAgent(0, all_possible_actions)
-    agent2 = DQNAgent(1, all_possible_actions)
+    agent1 = DQNAgent(0)
+    agent2 = DQNAgent(1)
     game = AdvancedGame(agent1, agent2)
     game._run()
 

@@ -528,7 +528,7 @@ class AzulGameRule(GameRule):
                         tg.pattern_line_dest = i
                         tg.num_to_pattern_line = min(num_avail, slots_free)
                         tg.num_to_floor_line = tg.number - tg.num_to_pattern_line
-
+                        
                         actions.append((utils.Action.TAKE_FROM_FACTORY, fid, tg))
             
                     # Default action is to place all the tiles in the floor line
