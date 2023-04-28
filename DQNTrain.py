@@ -268,45 +268,26 @@ class DQNAgent:
         minibatch = random.sample(self.memory, BATCH_SIZE)
         input_data = np.array([data[0] for data in minibatch])
         target_data = self.model.predict(input_data)
-        print("Done")
-        for i, (state, action, reward, next_state, done) in enumerate(minibatch):
-            # print("Next state shape: ", next_state.shape)
-            # target = reward + self.gamma * np.amax(self.target_model.predict(next_state)[0])
-            if not done: 
-                next_target = np.max(self.model.predict(np.array([next_state]))[0])
-                # print("Next target predicted")
-                target = reward + self.gamma * next_target
-                
-            else: 
-                target = reward
-            # find the index of the action
-            # flatten the action
-            # 8 action components
-
-            # ignore endround actions in replay, they are not in the deepqlearninf output
-            if action == "ENDROUND":
+        next_states = np.array([data[3] for data in minibatch])
+        actions = [data[1] for data in minibatch]
+        rewards = [data[2] for data in minibatch]
+        dones = [data[4] for data in minibatch]
+        next_q_values = self.target_model.predict(next_states)
+        for i in range(len(minibatch)):
+            target = rewards[i]
+            if actions[i] == "ENDROUND":
                 continue
+            if not dones[i]:
+                target += self.gamma * np.amax(next_q_values[i])
             try:
-                action_type = action[0]
-                id = action[1]
-            except:
-                print("Action with error: ", len(action))
-                continue
-            try:
-                tg = action[2]
+                action_type = actions[i][0]
+                id = actions[i][1]
+                tg = actions[i][2]
                 num_tiles = tg.number
-            except:
-                print("tg: ", tg)
-            tile_type = tg.tile_type
-            pattern_line_dest = tg.pattern_line_dest
-            num_to_pattern_line = tg.num_to_pattern_line
-            num_to_floor_line = tg.num_to_floor_line
-            # num_tiles : 2
-            # pattern_line_dest : 0
-            # num_to_pattern_line: 0
-            # num_to_floor_line: 2
-            # print("Action dictionary: ", self.action_encoder.action_dict)
-            try:
+                tile_type = tg.tile_type
+                pattern_line_dest = tg.pattern_line_dest
+                num_to_pattern_line = tg.num_to_pattern_line
+                num_to_floor_line = tg.num_to_floor_line
                 action_index = self.action_encoder.action_dict[(action_type, id, tile_type, num_tiles, pattern_line_dest, num_to_pattern_line, num_to_floor_line)]
                 target_data[i][action_index] = target
             # need to get the index of this action 
@@ -314,9 +295,10 @@ class DQNAgent:
                 print("Action with error: ", (action_type, id, tile_type, num_tiles, pattern_line_dest, num_to_pattern_line, num_to_floor_line))
                 # continue
                 exit()
-        # updates the weights of the neural network model through gradient descent 
         self.model.fit(input_data, target_data, epochs=1, verbose=0)
         self.update_target_model()
+        # predict in batches
+
     def load(self, name):
         # load the model weights from a file
         self.model.load_weights(name)
