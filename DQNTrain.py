@@ -7,19 +7,19 @@ import random
 from template import Agent as DummyAgent
 import copy
 from   func_timeout import func_timeout, FunctionTimedOut
-
+import os
 THINK_TIME = 0.9
 NUM_PLAYERS = 2
 NUM_COLOR = 5
 GRID_SIZE = 5
-BATCH_SIZE = 32
+BATCH_SIZE = 1000
 DISCOUNT_FACTOR = 0.99
 EPSILON = 1.0
 EPSILON_DECAY = 0.999
 LEARNING_RATE = 0.1
 MIN_EPSILON = 0.01
 MEMORY_CAPACITY = 10000
-NUM_EPISODES = 10000
+NUM_EPISODES = 2
 SAVE_FREQUENCY = 10
 # In general, a typical game of Azul between two skilled players 
 # can take anywhere from 20 to 40 per player
@@ -305,6 +305,7 @@ class DQNAgent:
             except:
                 print("Action with error: ", (action_type, id, tile_type, num_tiles, pattern_line_dest, num_to_pattern_line, num_to_floor_line))
                 continue
+        # updates the weights of the neural network model through gradient descent 
         self.model.fit(input_data, target_data, epochs=1, verbose=0)
         self.update_target_model()
     def load(self, name):
@@ -339,9 +340,19 @@ class DQNAgent:
     def train(self):
         self.agent1 = DQNAgent(0)
         self.agent2 = DQNAgent(1)
+        wins_agent1 = 0
+        wins_agent2 = 0
         for episode in range(NUM_EPISODES):
                 game = AdvancedGame(self.agent1, self.agent2)
-                game._run()
+                agents_complete_reward = game._run()
+                agent_1_reward = agents_complete_reward[0]
+                agent_2_reward = agents_complete_reward[1]
+                print("Agent 1 reward: ", agent_1_reward)
+                print("Agent 2 reward: ", agent_2_reward)
+                if agent_1_reward > agent_2_reward:
+                    wins_agent1 += 1
+                else:
+                    wins_agent2 += 1
                 if self.agent1.epsilon > self.agent1.epsilon_min:
                     self.agent1.decay_epsilon()
                 if self.agent2.epsilon > self.agent2.epsilon_min:
@@ -350,7 +361,17 @@ class DQNAgent:
                     # save the policy for both agents
                     self.agent1.save("policymodel1.h5")
                     self.agent2.save("policymodel2.h5")
-                    
+        if wins_agent1 >= wins_agent2:
+           # specify the path of the file
+           file_path = "policymodel2.h5"
+           if os.path.exists(file_path):
+               os.remove(file_path)
+               print("File deleted successfully")
+        else:
+            file_path = "policymodel1.h5"
+            if os.path.exists(file_path):
+               os.remove(file_path)
+               print("File deleted successfully")             
 
 
  
@@ -399,6 +420,9 @@ class AdvancedGame:
             # print(len(state.agents))
             # print("Agent turn: ", agent_turn)
             # print("Agent trace: ", state.agents[agent_turn].agent_trace.actions)
+
+            # when the action is end round, the next state generated is scoring the
+            # rounds for each state agent and add the tiles to the used bag
             next_state = self.game_rule.generateSuccessor(state,action,agent_turn)
             reward = current_agent.reward_function(state, next_state, is_timed_out)
             # features should be extracted from state and successor_state
@@ -435,11 +459,14 @@ class AdvancedGame:
       
 if __name__ == "__main__":  
     # testing for one episode
-    game_rule = AzulGameRule(NUM_PLAYERS)
-    agent1 = DQNAgent(0)
-    agent2 = DQNAgent(1)
-    game = AdvancedGame(agent1, agent2)
-    game._run()
+    # game_rule = AzulGameRule(NUM_PLAYERS)
+    # agent1 = DQNAgent(0)
+    # agent2 = DQNAgent(1)
+    # game = AdvancedGame(agent1, agent2)
+    # game._run()
+
+    dqn_train = DQNAgent(3)
+    dqn_train.train()
 
 
         
