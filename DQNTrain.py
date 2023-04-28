@@ -10,18 +10,19 @@ import time
 from   func_timeout import func_timeout, FunctionTimedOut
 import os
 import contextlib
+import matplotlib.pyplot as plt
 THINK_TIME = 0.9
 NUM_PLAYERS = 2
 NUM_COLOR = 5
 GRID_SIZE = 5
-BATCH_SIZE = 20
+BATCH_SIZE = 1000
 DISCOUNT_FACTOR = 0.99
 EPSILON = 1.0
 EPSILON_DECAY = 0.999
-LEARNING_RATE = 0.1
+LEARNING_RATE = 0.001
 MIN_EPSILON = 0.01
 MEMORY_CAPACITY = 10000
-NUM_EPISODES = 2
+NUM_EPISODES = 30
 SAVE_FREQUENCY = 10
 # In general, a typical game of Azul between two skilled players 
 # can take anywhere from 20 to 40 per player
@@ -100,16 +101,17 @@ class DQNAgent:
         # target network
         self.target_model = self.build_model()
         # initialize the weights from both policy network and target network
-
+        # collects the rewards from each episode
+        self.episode_total_reward = 0
+        self.rewards = []
 
 
     def build_model(self):
-        model = tf.keras.Sequential([
-            tf.keras.layers.Dense(32, input_shape=(19,), activation='relu', kernel_initializer='random_normal'),
-            tf.keras.layers.Dense(32, activation='relu', kernel_initializer='random_normal'),
-            tf.keras.layers.Dense(self.action_encoder.num_actions, kernel_initializer='random_normal')
-        ])
-        model.compile(loss='mse', optimizer=tf.keras.optimizers.Adam())
+        model = tf.keras.Sequential()
+        model.add(tf.keras.layers.Dense(24, input_shape = (44,), activation = 'relu'))
+        model.add(tf.keras.layers.Dense(12, activation = 'relu'))
+        model.add(tf.keras.layers.Dense(self.action_encoder.num_actions, activation = 'linear'))
+        model.compile(loss = 'mse', optimizer=tf.keras.optimizers.Adam(learning_rate=self.learning_rate))
         return model
 
     def update_target_model(self):
@@ -120,13 +122,14 @@ class DQNAgent:
     def remember(self, state, action, reward, next_state, done):
         self.memory.append((state, action, reward, next_state, done))
         if len(self.memory) > MEMORY_CAPACITY:
-            self.memory.pop(0)
+            popped_memory = self.memory.pop(0)
+            print("Popped memory: ", popped_memory)
     def get_features(self, state):
         # Extract relevant features for the Azul game state
 
         # Initialize the feature vector with zeroes
         # Features included:
-        # 1. The number of tiles in each colour that have not been placed on the game board (5)
+        # 1. The number of tiles in each colour that have not been placed on the game board (5 * 5)
         # 2. The number of tiles in each colour that each player has already placed individually
         # on their game board (10)
         # 3. The current score for each player (2)
@@ -134,23 +137,25 @@ class DQNAgent:
 
         # Initialize the feature vector with zeros
         # 5 + 5 * 2 + 2 + 1
-        features = np.zeros((NUM_COLOR + NUM_COLOR * NUM_PLAYERS + NUM_PLAYERS + 2, ))
+        features = np.zeros((NUM_PLAYERS * NUM_COLOR + NUM_FACTORIES * NUM_COLOR + NUM_COLOR + NUM_PLAYERS + 2, ))
         #print("Actual size: ", len(features))
         # Add the number of tiles in each colour that have not yet been placed on the game board
 
         # add available tiles from the factory first
         # get the total tiles from all factories for later use
         factory_tile_count = 0
-        for factory in state.factories: 
+        # there are five factories in a five player game
+        for factory_num, factory in enumerate(state.factories): 
+            # there are 5 types of tiles
             for colour in utils.Tile:
-                features[colour] = factory.tiles[colour]
+                features[factory_num * NUM_COLOR + colour] = factory.tiles[colour]
                 factory_tile_count += factory.tiles[colour]
                 # factory from state.factories
                 # state.centre_pool.tiles
                 # factory.tiles
         # also add from the centre
         for colour in utils.Tile:
-            features[colour] += state.centre_pool.tiles[colour]
+            features[NUM_FACTORIES * NUM_COLOR + colour] += state.centre_pool.tiles[colour]
 
         # add the number of tiles of each player that have been placed on the game board
         # access through self.agents
@@ -160,13 +165,13 @@ class DQNAgent:
         # index 5 -> index 14 (inclusive)
         # NUM_PLAYERS * NUM_COLOR + NUM_COLOR = 2 * 5 + 5
         players_filled_tiles = self.get_player_tiles(state)
-        features[NUM_COLOR : NUM_PLAYERS * NUM_COLOR + NUM_COLOR] = players_filled_tiles
+        features[NUM_FACTORIES * NUM_COLOR  + NUM_COLOR : NUM_PLAYERS * NUM_COLOR + NUM_FACTORIES * NUM_COLOR + NUM_COLOR] = players_filled_tiles
 
         # Add the current score of each player
         # self.score in agent state
         for i in range(NUM_PLAYERS):
             player = state.agents[i]
-            features[NUM_PLAYERS * NUM_COLOR + NUM_COLOR + i]  = player.score
+            features[NUM_PLAYERS * NUM_COLOR + NUM_FACTORIES * NUM_COLOR + NUM_COLOR + i]  = player.score
         # Add the current round in the game
         # AgentState.agent_trace.round_scores
         current_agent = state.agents[self.id]
@@ -176,10 +181,10 @@ class DQNAgent:
         # we are currently in the sixth round
         round_scores = current_agent.agent_trace.round_scores
         current_round = len(round_scores) + 1
-        features[NUM_PLAYERS * NUM_COLOR + NUM_COLOR + NUM_PLAYERS] = current_round
+        features[NUM_PLAYERS * NUM_COLOR + NUM_FACTORIES * NUM_COLOR + NUM_COLOR + NUM_PLAYERS] = current_round
         # Add the current player's id
         #print("Accessed index: ", NUM_PLAYERS * NUM_COLOR + NUM_COLOR + NUM_PLAYERS + 1)
-        features[NUM_PLAYERS * NUM_COLOR + NUM_COLOR + NUM_PLAYERS + 1] = self.id
+        features[NUM_PLAYERS * NUM_COLOR + NUM_FACTORIES * NUM_COLOR + NUM_COLOR + NUM_PLAYERS + 1] = self.id
         return features
     # TODO: may be wrong
     def get_player_tiles(self, state):
@@ -269,13 +274,13 @@ class DQNAgent:
         input_data = np.array([data[0] for data in minibatch])
         target_data = self.model.predict(input_data)
         next_states = np.array([data[3] for data in minibatch])
-        actions = [data[1] for data in minibatch]
+        actions = [data[1] if isinstance(data[1], tuple) else 'ENDROUND' for data in minibatch]
         rewards = [data[2] for data in minibatch]
         dones = [data[4] for data in minibatch]
         next_q_values = self.target_model.predict(next_states)
         for i in range(len(minibatch)):
             target = rewards[i]
-            if actions[i] == "ENDROUND":
+            if isinstance(actions[i], str):
                 continue
             if not dones[i]:
                 target += self.gamma * np.amax(next_q_values[i])
@@ -292,7 +297,9 @@ class DQNAgent:
                 target_data[i][action_index] = target
             # need to get the index of this action 
             except:
+                print("Tile type: ", num_tiles)
                 print("Action with error: ", (action_type, id, tile_type, num_tiles, pattern_line_dest, num_to_pattern_line, num_to_floor_line))
+                print("Is action type end: ", actions[i][0] == 'ENDROUND')
                 # continue
                 exit()
         self.model.fit(input_data, target_data, epochs=1, verbose=0)
@@ -332,11 +339,14 @@ class DQNAgent:
     def train(self):
         # with open(os.devnull, 'w') as devnull:
         #     with contextlib.redirect_stdout(devnull):
+                self.epsilons = []
                 self.agent1 = DQNAgent(0)
                 self.agent2 = DQNAgent(1)
                 wins_agent1 = 0
                 wins_agent2 = 0
                 start_time = time.time()
+                self.agent1_win_rate_over_windows = []
+                self.agent2_win_rate_over_windows = []
                 for episode in range(NUM_EPISODES):
                         game = AdvancedGame(self.agent1, self.agent2)
                         agents_complete_reward = game._run()
@@ -345,11 +355,17 @@ class DQNAgent:
                         print("Agent 1 reward: ", agent_1_reward)
                         print("Agent 2 reward: ", agent_2_reward)
                         if agent_1_reward > agent_2_reward:
-                            wins_agent1 += 1
+                                wins_agent1 += 1
                         else:
                             wins_agent2 += 1
+                        if episode % 5 == 0:
+                            self.agent1_win_rate_over_windows.append(wins_agent1)
+                            self.agent2_win_rate_over_windows.append(wins_agent2)
+                            wins_agent1 = 0
+                            wins_agent2 = 0
                         if self.agent1.epsilon > self.agent1.epsilon_min:
                             self.agent1.decay_epsilon()
+                            self.epsilons.append(self.agent1.epsilon)
                         if self.agent2.epsilon > self.agent2.epsilon_min:
                             self.agent2.decay_epsilon()
                         if episode % SAVE_FREQUENCY == 0:
@@ -370,6 +386,11 @@ class DQNAgent:
                 # End the timer and count the elapsed time
                 elapsed_time = time.time() - start_time   
                 print(elapsed_time)     
+                self.agent1_win_rate_over_windows.pop(0)
+                self.agent1_win_rate_over_windows.append(wins_agent1)
+
+                self.agent2_win_rate_over_windows.pop(0)
+                self.agent2_win_rate_over_windows.append(wins_agent2)
 
 
  
@@ -427,6 +448,7 @@ class AdvancedGame:
             # rounds for each state agent and add the tiles to the used bag
             next_state = self.game_rule.generateSuccessor(state,action,agent_turn)
             reward = current_agent.reward_function(state, next_state, is_timed_out)
+            current_agent.episode_total_reward += reward
             # features should be extracted from state and successor_state
             # before putting them into memory
             curr_feature = current_agent.get_features(state)
@@ -453,6 +475,11 @@ class AdvancedGame:
             done = self.game_rule.gameEnds()
             # calScore
         print("End game")
+        self.agent1.rewards.append(self.agent1.episode_total_reward)
+        self.agent2.rewards.append(self.agent2.episode_total_reward)
+        # renew the episode_total_reward
+        self.agent1.episode_total_reward = 0
+        self.agent2.episode_total_reward = 0
         agent_1_complete_reward = self.game_rule.calScore(state,0)
         agent_2_complete_reward = self.game_rule.calScore(state, 1)
         return [agent_1_complete_reward, agent_2_complete_reward]
@@ -469,6 +496,34 @@ if __name__ == "__main__":
 
     dqn_train = DQNAgent(3)
     dqn_train.train()
+    # # get agent1 rewards aross episodes
+    agent1_rewards = dqn_train.agent1.rewards
+    agent2_rewards = dqn_train.agent2.rewards
+    ag1_wr = dqn_train.agent1_win_rate_over_windows
+    ag2_wr = dqn_train.agent1_win_rate_over_windows
+
+    # # Organize data into arrays
+    episode_nums = [i for i in range(NUM_EPISODES)]
+    episode_intervals = [5,10,15,20,25,30]
+    figure, axis = plt.subplots(2,2)
+    axis[0,0].plot(episode_nums, agent1_rewards)
+    # Naming: Y vs X axis
+    axis[0,0].set_title("Agent 1 rewards vs episodes nums")
+
+    axis[0,1].plot(episode_nums, agent2_rewards)
+    axis[0,1].set_title("Agent 2 rewards vs episode nums")
+
+    axis[1,0].plot(episode_intervals,ag1_wr)
+    axis[1,0].set_title("Agent 1 win rates vs episode interval")
+
+    axis[1,1].plot(episode_intervals,ag2_wr)
+    axis[1,1].set_title("Agent 2 win rates vs episode interval")
+
+    # Combine all operations and display
+    plt.show()
+
+
+
 
 
         
