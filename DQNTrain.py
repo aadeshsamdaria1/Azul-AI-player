@@ -6,13 +6,15 @@ import tensorflow as tf
 import random
 from template import Agent as DummyAgent
 import copy
+import time
 from   func_timeout import func_timeout, FunctionTimedOut
 import os
+import contextlib
 THINK_TIME = 0.9
 NUM_PLAYERS = 2
 NUM_COLOR = 5
 GRID_SIZE = 5
-BATCH_SIZE = 1000
+BATCH_SIZE = 20
 DISCOUNT_FACTOR = 0.99
 EPSILON = 1.0
 EPSILON_DECAY = 0.999
@@ -50,10 +52,10 @@ class ActionEncoder:
         index = 0  
         for factory_id in range(NUM_FACTORIES):
             for tile_type in utils.Tile:
-                for num_tiles in range(6):
+                for num_tiles in range(8):
                     for pattern_line_dest in range(-1, GRID_SIZE):
                         for num_to_pattern_line in range(0, GRID_SIZE + 1):
-                            for num_to_floor_line in range(0, GRID_SIZE + 1):
+                            for num_to_floor_line in range(0, GRID_SIZE + 3):
                                 action_type = utils.Action.TAKE_FROM_FACTORY
                                 self.action_dict[(action_type, factory_id, tile_type, num_tiles, pattern_line_dest, num_to_pattern_line, num_to_floor_line)] = index
                                 index += 1
@@ -62,11 +64,13 @@ class ActionEncoder:
             for num_tiles in range(1,21):
                 for pattern_line_dest in range(-1, GRID_SIZE):
                         for num_to_pattern_line in range(0, GRID_SIZE + 1):
-                            for num_to_floor_line in range(0, GRID_SIZE + 1):
+                            for num_to_floor_line in range(0, num_tiles + 1):
                                 action_type = utils.Action.TAKE_FROM_CENTRE
                                 self.action_dict[(action_type, -1, tile_type, num_tiles, pattern_line_dest, num_to_pattern_line, num_to_floor_line)] = index
                                 index += 1
         # Get the total number of possible actions
+        with open("action_space.txt","w") as f:
+            f.write(str(self.action_dict))
         self.num_actions = len(self.action_dict)
         # for index lookup
         self.reverse_action_dict = {value : key for key, value in self.action_dict.items()}
@@ -211,7 +215,7 @@ class DQNAgent:
 
         if np.random.rand() <= self.epsilon:
             return random.choice(legal_actions)
-
+        print("Finally random action is not chosen")
         # TODO: need to change this
         # Extract relevant features for the Azul game state
         features = self.get_features(state)
@@ -282,8 +286,12 @@ class DQNAgent:
             # ignore endround actions in replay, they are not in the deepqlearninf output
             if action == "ENDROUND":
                 continue
-            action_type = action[0]
-            id = action[1]
+            try:
+                action_type = action[0]
+                id = action[1]
+            except:
+                print("Action with error: ", len(action))
+                continue
             try:
                 tg = action[2]
                 num_tiles = tg.number
@@ -304,7 +312,8 @@ class DQNAgent:
             # need to get the index of this action 
             except:
                 print("Action with error: ", (action_type, id, tile_type, num_tiles, pattern_line_dest, num_to_pattern_line, num_to_floor_line))
-                continue
+                # continue
+                exit()
         # updates the weights of the neural network model through gradient descent 
         self.model.fit(input_data, target_data, epochs=1, verbose=0)
         self.update_target_model()
@@ -320,6 +329,7 @@ class DQNAgent:
     def reward_function(self, state, successor_state, is_timed_out):
         # Reward for completing a row or a column
         # both state and successor_state are Azul state
+        # TODO: score calculation wrong
         prev_score = state.agents[self.id].GetCompletedRows() + state.agents[self.id].GetCompletedColumns()
         curr_score = successor_state.agents[self.id].GetCompletedRows() + state.agents[self.id].GetCompletedColumns()
         # get the total number of actions taken so far in the game
@@ -338,40 +348,46 @@ class DQNAgent:
 
         return reward
     def train(self):
-        self.agent1 = DQNAgent(0)
-        self.agent2 = DQNAgent(1)
-        wins_agent1 = 0
-        wins_agent2 = 0
-        for episode in range(NUM_EPISODES):
-                game = AdvancedGame(self.agent1, self.agent2)
-                agents_complete_reward = game._run()
-                agent_1_reward = agents_complete_reward[0]
-                agent_2_reward = agents_complete_reward[1]
-                print("Agent 1 reward: ", agent_1_reward)
-                print("Agent 2 reward: ", agent_2_reward)
-                if agent_1_reward > agent_2_reward:
-                    wins_agent1 += 1
+        # with open(os.devnull, 'w') as devnull:
+        #     with contextlib.redirect_stdout(devnull):
+                self.agent1 = DQNAgent(0)
+                self.agent2 = DQNAgent(1)
+                wins_agent1 = 0
+                wins_agent2 = 0
+                start_time = time.time()
+                for episode in range(NUM_EPISODES):
+                        game = AdvancedGame(self.agent1, self.agent2)
+                        agents_complete_reward = game._run()
+                        agent_1_reward = agents_complete_reward[0]
+                        agent_2_reward = agents_complete_reward[1]
+                        print("Agent 1 reward: ", agent_1_reward)
+                        print("Agent 2 reward: ", agent_2_reward)
+                        if agent_1_reward > agent_2_reward:
+                            wins_agent1 += 1
+                        else:
+                            wins_agent2 += 1
+                        if self.agent1.epsilon > self.agent1.epsilon_min:
+                            self.agent1.decay_epsilon()
+                        if self.agent2.epsilon > self.agent2.epsilon_min:
+                            self.agent2.decay_epsilon()
+                        if episode % SAVE_FREQUENCY == 0:
+                            # save the policy for both agents
+                            self.agent1.save("policymodel1.h5")
+                            self.agent2.save("policymodel2.h5")
+                if wins_agent1 >= wins_agent2:
+                    # specify the path of the file
+                    file_path = "policymodel2.h5"
+                    if os.path.exists(file_path):
+                        os.remove(file_path)
+                        print("File deleted successfully")
                 else:
-                    wins_agent2 += 1
-                if self.agent1.epsilon > self.agent1.epsilon_min:
-                    self.agent1.decay_epsilon()
-                if self.agent2.epsilon > self.agent2.epsilon_min:
-                    self.agent2.decay_epsilon()
-                if episode % SAVE_FREQUENCY == 0:
-                    # save the policy for both agents
-                    self.agent1.save("policymodel1.h5")
-                    self.agent2.save("policymodel2.h5")
-        if wins_agent1 >= wins_agent2:
-           # specify the path of the file
-           file_path = "policymodel2.h5"
-           if os.path.exists(file_path):
-               os.remove(file_path)
-               print("File deleted successfully")
-        else:
-            file_path = "policymodel1.h5"
-            if os.path.exists(file_path):
-               os.remove(file_path)
-               print("File deleted successfully")             
+                    file_path = "policymodel1.h5"
+                    if os.path.exists(file_path):
+                        os.remove(file_path)
+                        print("File deleted successfully")     
+                # End the timer and count the elapsed time
+                elapsed_time = time.time() - start_time   
+                print(elapsed_time)     
 
 
  
@@ -399,6 +415,10 @@ class AdvancedGame:
         # use self-play strategy
         # define the two agents
         state = self.game_rule.current_game_state
+        # print the factory display at the start of each game
+        # for i in range(len(state.factories)):
+        #     for tile in utils.Tile:
+        #         print("Factory: ", i, " Tile colour: ",tile, state.factories[i].tiles[tile])
         agent_turn = 0
         first_player_token  = 0
         print("Start game")
