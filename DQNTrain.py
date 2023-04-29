@@ -51,30 +51,18 @@ class ActionEncoder:
     def map_action(self):
         self.action_dict = {}
         index = 0  
-        for factory_id in range(NUM_FACTORIES):
-            for tile_type in utils.Tile:
-                for num_tiles in range(8):
-                    for pattern_line_dest in range(-1, GRID_SIZE):
-                        for num_to_pattern_line in range(0, GRID_SIZE + 1):
-                            for num_to_floor_line in range(0, GRID_SIZE + 3):
-                                action_type = utils.Action.TAKE_FROM_FACTORY
-                                self.action_dict[(action_type, factory_id, tile_type, num_tiles, pattern_line_dest, num_to_pattern_line, num_to_floor_line)] = index
-                                index += 1
-        # include taking from centre actions
-        for tile_type in utils.Tile:
-            for num_tiles in range(1,21):
-                for pattern_line_dest in range(-1, GRID_SIZE):
-                        for num_to_pattern_line in range(0, GRID_SIZE + 1):
-                            for num_to_floor_line in range(0, num_tiles + 1):
-                                action_type = utils.Action.TAKE_FROM_CENTRE
-                                self.action_dict[(action_type, -1, tile_type, num_tiles, pattern_line_dest, num_to_pattern_line, num_to_floor_line)] = index
-                                index += 1
+        # for abstraction, just get pattern_line_dest, num_to_pattern_line and num_to_floor_line
+        for pattern_line_dest in range(-1, GRID_SIZE):
+            for num_to_pattern_line in range(0, GRID_SIZE + 1):
+                    for num_to_floor_line in range(0, GRID_SIZE + 3):
+                        self.action_dict[(pattern_line_dest, num_to_pattern_line, num_to_floor_line)] = index
+                        index += 1
+
         # Get the total number of possible actions
+        print("Size of action space: ", len(self.action_dict))
         with open("action_space.txt","w") as f:
             f.write(str(self.action_dict))
         self.num_actions = len(self.action_dict)
-        # for index lookup
-        self.reverse_action_dict = {value : key for key, value in self.action_dict.items()}
 
 class DQNAgent:
         # game_rule.current_game_state
@@ -108,7 +96,7 @@ class DQNAgent:
 
     def build_model(self):
         model = tf.keras.Sequential()
-        model.add(tf.keras.layers.Dense(24, input_shape = (44,), activation = 'relu'))
+        model.add(tf.keras.layers.Dense(24, input_shape = (86,), activation = 'relu'))
         model.add(tf.keras.layers.Dense(12, activation = 'relu'))
         model.add(tf.keras.layers.Dense(self.action_encoder.num_actions, activation = 'linear'))
         model.compile(loss = 'mse', optimizer=tf.keras.optimizers.Adam(learning_rate=self.learning_rate))
@@ -137,7 +125,7 @@ class DQNAgent:
 
         # Initialize the feature vector with zeros
         # 5 + 5 * 2 + 2 + 1
-        features = np.zeros((NUM_PLAYERS * NUM_COLOR + NUM_FACTORIES * NUM_COLOR + NUM_COLOR + NUM_PLAYERS + 2, ))
+        features = np.zeros((NUM_PLAYERS * NUM_COLOR * GRID_SIZE + NUM_FACTORIES * NUM_COLOR + NUM_COLOR + NUM_PLAYERS + 4, ))
         #print("Actual size: ", len(features))
         # Add the number of tiles in each colour that have not yet been placed on the game board
 
@@ -161,17 +149,15 @@ class DQNAgent:
         # access through self.agents
         # self.lines_tile[line] (AgentState)
         # self.lines_number[line]
-        # 0 .. 4 av from fac
-        # index 5 -> index 14 (inclusive)
-        # NUM_PLAYERS * NUM_COLOR + NUM_COLOR = 2 * 5 + 5
+        # size: NUM_PLAYERS * NUM_COLOR * GRID_SIZE
         players_filled_tiles = self.get_player_tiles(state)
-        features[NUM_FACTORIES * NUM_COLOR  + NUM_COLOR : NUM_PLAYERS * NUM_COLOR + NUM_FACTORIES * NUM_COLOR + NUM_COLOR] = players_filled_tiles
+        features[NUM_FACTORIES * NUM_COLOR  + NUM_COLOR : NUM_PLAYERS * NUM_COLOR * GRID_SIZE + NUM_FACTORIES * NUM_COLOR + NUM_COLOR] = players_filled_tiles
 
         # Add the current score of each player
         # self.score in agent state
         for i in range(NUM_PLAYERS):
             player = state.agents[i]
-            features[NUM_PLAYERS * NUM_COLOR + NUM_FACTORIES * NUM_COLOR + NUM_COLOR + i]  = player.score
+            features[NUM_PLAYERS * NUM_COLOR * GRID_SIZE + NUM_FACTORIES * NUM_COLOR + NUM_COLOR + i]  = player.score
         # Add the current round in the game
         # AgentState.agent_trace.round_scores
         current_agent = state.agents[self.id]
@@ -181,15 +167,31 @@ class DQNAgent:
         # we are currently in the sixth round
         round_scores = current_agent.agent_trace.round_scores
         current_round = len(round_scores) + 1
-        features[NUM_PLAYERS * NUM_COLOR + NUM_FACTORIES * NUM_COLOR + NUM_COLOR + NUM_PLAYERS] = current_round
+        features[NUM_PLAYERS * NUM_COLOR * GRID_SIZE + NUM_FACTORIES * NUM_COLOR + NUM_COLOR + NUM_PLAYERS] = current_round
         # Add the current player's id
         #print("Accessed index: ", NUM_PLAYERS * NUM_COLOR + NUM_COLOR + NUM_PLAYERS + 1)
-        features[NUM_PLAYERS * NUM_COLOR + NUM_FACTORIES * NUM_COLOR + NUM_COLOR + NUM_PLAYERS + 1] = self.id
+        features[NUM_PLAYERS * NUM_COLOR * GRID_SIZE + NUM_FACTORIES * NUM_COLOR + NUM_COLOR + NUM_PLAYERS + 1] = self.id
+
+        # extract the number of tiles taken in the previous action in the game state
+        try: 
+            previous_action = current_agent.agent_trace.actions[-1][-1]
+            if(len(previous_action) > 1):
+                tg = previous_action[2]
+                number = tg.number
+                tile_type = tg.tile_type
+                features[NUM_PLAYERS * NUM_COLOR * GRID_SIZE + NUM_FACTORIES * NUM_COLOR + NUM_COLOR + NUM_PLAYERS + 2] = number
+                fearures[NUM_PLAYERS * NUM_COLOR * GRID_SIZE + NUM_FACTORIES * NUM_COLOR + NUM_COLOR + NUM_PLAYERS + 3] = tile_type
+            else:
+                features[NUM_PLAYERS * NUM_COLOR * GRID_SIZE + NUM_FACTORIES * NUM_COLOR + NUM_COLOR + NUM_PLAYERS + 2] = 0
+                features[NUM_PLAYERS * NUM_COLOR * GRID_SIZE + NUM_FACTORIES * NUM_COLOR + NUM_COLOR + NUM_PLAYERS + 3] = -1
+        except:
+            features[NUM_PLAYERS * NUM_COLOR * GRID_SIZE + NUM_FACTORIES * NUM_COLOR + NUM_COLOR + NUM_PLAYERS + 2] = 0
+            features[NUM_PLAYERS * NUM_COLOR * GRID_SIZE + NUM_FACTORIES * NUM_COLOR + NUM_COLOR + NUM_PLAYERS + 3] = -1
         return features
     # TODO: may be wrong
     def get_player_tiles(self, state):
-        # initialize a numpy array of size 5 with zeroes
-        player_filled_tile = np.zeros((NUM_PLAYERS * NUM_COLOR, ))
+        # initialize a numpy array of size (NUM_PLAYERS * NUM_COLOR * GRID_SIZE)
+        player_filled_tile = np.zeros((NUM_PLAYERS * NUM_COLOR * GRID_SIZE, ))
         for i in range(NUM_PLAYERS):
             player = state.agents[i]
             # go through each line of the board
@@ -198,7 +200,8 @@ class DQNAgent:
                 if(player.lines_tile[j] != -1):
                     tile_color = player.lines_tile[j]
                     num_filled = player.lines_number[j]
-                    player_filled_tile[i * NUM_COLOR + tile_color] = num_filled
+                    # update the player_filled_tile array with the specific tile colour information
+                    player_filled_tile[i * (NUM_COLOR * GRID_SIZE) + tile_color * GRID_SIZE + j] = num_filled
         return player_filled_tile
 
 
@@ -213,11 +216,8 @@ class DQNAgent:
 
         # If the random number is less than or equal to EPSILON, the agent will explore the game space
         # by occassionally selecting random actions 
-        
         # Get legal actions
         legal_actions = self.game_rule.getLegalActions(state, self.id)
-        #print("Legal actions: ", legal_actions)
-
         if np.random.rand() <= self.epsilon:
             return random.choice(legal_actions)
         print("Finally random action is not chosen")
@@ -232,36 +232,33 @@ class DQNAgent:
         
         # TODO: test this part 
         # flatten the legal actions
-        max_q_val = float("-inf")
-        # need to account for end action
         if len(legal_actions) == 1:
             return legal_actions
+        
+        max_q_val = float("-inf")
+        # need to account for end action
         for action in legal_actions:
             # too many values to unpack
-            action_type = action[0]
-            id = action[1]
-            tg = action[2]
-            tile_type = tg.tile_type
-            num_tiles = tg.number
-            pattern_line_dest = tg.pattern_line_dest
-            num_to_pattern_line = tg.num_to_pattern_line
-            num_to_floor_line = tg.num_to_floor_line
-            index = self.action_encoder.action_dict[(action_type, id, tile_type, num_tiles, pattern_line_dest, num_to_pattern_line, num_to_floor_line)]
-            # get this index from the q-values
-            q_val = q_values[index]
-            if q_val > max_q_val:
-                max_q_index = index
-        # find the flattened action
-        flattened_action = self.action_encoder.reverse_action_dict[max_q_index]
-        # convert the flatenned action back to actual action
-        action_type, id, tile_type, num_avail, pattern_line_dest, num_to_pattern_line, num_to_floor_line = flattened_action
-        tg =  utils.TileGrab()
-        tg.tile_type = tile_type
-        tg.number = num_avail
-        tg.num_to_floor_line = num_to_floor_line
-        tg.num_to_pattern_line = num_to_pattern_line
-        tg.pattern_line_dest = pattern_line_dest
-        return(action_type, id, tg)
+            if len(action) == 3:
+                action_type = action[0]
+                id = action[1]
+                try:
+                    tg = action[2]
+                except:
+                    print("error caught")
+                    print("Action: ", action)
+                tile_type = tg.tile_type
+                num_tiles = tg.number
+                pattern_line_dest = tg.pattern_line_dest
+                num_to_pattern_line = tg.num_to_pattern_line
+                num_to_floor_line = tg.num_to_floor_line
+                index = self.action_encoder.action_dict[(pattern_line_dest, num_to_pattern_line, num_to_floor_line)]
+                # get this index from the q-values
+                q_val = q_values[index]
+                if q_val > max_q_val:
+                    max_q_index = index
+                    max_action = (action_type, id, tg)
+        return max_action
 
     # replay function is responsible for training the neural network based on a batch of experiences 
     # sampled randomly from the agent's memory. This is done in order to update the Q-values of the neural 
@@ -274,30 +271,25 @@ class DQNAgent:
         input_data = np.array([data[0] for data in minibatch])
         target_data = self.model.predict(input_data)
         next_states = np.array([data[3] for data in minibatch])
-        actions = [data[1] if isinstance(data[1], tuple) else 'ENDROUND' for data in minibatch]
+        actions = [data[1] for data in minibatch]
         rewards = [data[2] for data in minibatch]
         dones = [data[4] for data in minibatch]
         next_q_values = self.target_model.predict(next_states)
         for i in range(len(minibatch)):
             target = rewards[i]
             if isinstance(actions[i], str):
+                print("There should not be any strings here")
                 continue
             if not dones[i]:
                 target += self.gamma * np.amax(next_q_values[i])
             try:
-                action_type = actions[i][0]
-                id = actions[i][1]
-                tg = actions[i][2]
-                num_tiles = tg.number
-                tile_type = tg.tile_type
-                pattern_line_dest = tg.pattern_line_dest
-                num_to_pattern_line = tg.num_to_pattern_line
-                num_to_floor_line = tg.num_to_floor_line
-                action_index = self.action_encoder.action_dict[(action_type, id, tile_type, num_tiles, pattern_line_dest, num_to_pattern_line, num_to_floor_line)]
-                target_data[i][action_index] = target
+                target_data[i][actions[i]] = target
             # need to get the index of this action 
             except:
                 print("Tile type: ", num_tiles)
+                # write the batch with error actions into a file to check
+                with open("action_batch_error.txt", "w") as f:
+                    f.write(str(actions))
                 print("Action with error: ", (action_type, id, tile_type, num_tiles, pattern_line_dest, num_to_pattern_line, num_to_floor_line))
                 print("Is action type end: ", actions[i][0] == 'ENDROUND')
                 # continue
@@ -318,14 +310,16 @@ class DQNAgent:
     def reward_function(self, state, successor_state, is_timed_out):
         # Reward for completing a row or a column
         # both state and successor_state are Azul state
-        # TODO: score calculation wrong
         prev_score = state.agents[self.id].GetCompletedRows() + state.agents[self.id].GetCompletedColumns()
         curr_score = successor_state.agents[self.id].GetCompletedRows() + state.agents[self.id].GetCompletedColumns()
         # get the total number of actions taken so far in the game
         num_moves = sum(len(round_actions) for round_actions in successor_state.agents[self.id].agent_trace.actions)
         reward = 0
+        for i in range(len(state.agents[self.id].floor)):
+            reward += state.agents[self.id].floor[i] * state.agents[self.id].FLOOR_SCORES[i]
         if curr_score > prev_score:
-            reward += 10
+            reward += (curr_score - prev_score) * 5
+        # penalty for wasted tiles
         else:
             reward += 1
         if num_moves > MAX_MOVES:
@@ -333,8 +327,6 @@ class DQNAgent:
         # Reward for placing the tile in the correct position
         if is_timed_out:
             reward -= 10
-       
-
         return reward
     def train(self):
         # with open(os.devnull, 'w') as devnull:
@@ -359,8 +351,8 @@ class DQNAgent:
                         else:
                             wins_agent2 += 1
                         if episode % 5 == 0:
-                            self.agent1_win_rate_over_windows.append(wins_agent1)
-                            self.agent2_win_rate_over_windows.append(wins_agent2)
+                            self.agent1_win_rate_over_windows.append(wins_agent1 / 5)
+                            self.agent2_win_rate_over_windows.append(wins_agent2 / 5)
                             wins_agent1 = 0
                             wins_agent2 = 0
                         if self.agent1.epsilon > self.agent1.epsilon_min:
@@ -387,10 +379,10 @@ class DQNAgent:
                 elapsed_time = time.time() - start_time   
                 print(elapsed_time)     
                 self.agent1_win_rate_over_windows.pop(0)
-                self.agent1_win_rate_over_windows.append(wins_agent1)
+                self.agent1_win_rate_over_windows.append(wins_agent1/5)
 
                 self.agent2_win_rate_over_windows.pop(0)
-                self.agent2_win_rate_over_windows.append(wins_agent2)
+                self.agent2_win_rate_over_windows.append(wins_agent2/5)
 
 
  
@@ -453,7 +445,13 @@ class AdvancedGame:
             # before putting them into memory
             curr_feature = current_agent.get_features(state)
             next_feature = current_agent.get_features(next_state)
-            current_agent.remember(curr_feature, action, reward, next_feature, done)
+            if isinstance(action, tuple):
+                tg = action[2]
+                pattern_line_dest = tg.pattern_line_dest
+                num_to_pattern_line = tg.num_to_pattern_line
+                num_to_floor_line = tg.num_to_floor_line
+                action_index = current_agent.action_encoder.action_dict[(pattern_line_dest, num_to_pattern_line, num_to_floor_line)]
+                current_agent.remember(curr_feature, action_index, reward, next_feature, done)
             current_agent.replay()
             # update the state variable
             state = next_state
@@ -496,15 +494,15 @@ if __name__ == "__main__":
 
     dqn_train = DQNAgent(3)
     dqn_train.train()
-    # # get agent1 rewards aross episodes
+    # get agent1 rewards aross episodes
     agent1_rewards = dqn_train.agent1.rewards
     agent2_rewards = dqn_train.agent2.rewards
     ag1_wr = dqn_train.agent1_win_rate_over_windows
-    ag2_wr = dqn_train.agent1_win_rate_over_windows
+    ag2_wr = dqn_train.agent2_win_rate_over_windows
 
     # # Organize data into arrays
     episode_nums = [i for i in range(NUM_EPISODES)]
-    episode_intervals = [5,10,15,20,25,30]
+    episode_intervals = list(range(5,NUM_EPISODES + 1,5))
     figure, axis = plt.subplots(2,2)
     axis[0,0].plot(episode_nums, agent1_rewards)
     # Naming: Y vs X axis
