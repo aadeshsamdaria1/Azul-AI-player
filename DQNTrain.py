@@ -22,7 +22,7 @@ EPSILON_DECAY = 0.999
 LEARNING_RATE = 0.001
 MIN_EPSILON = 0.01
 MEMORY_CAPACITY = 10000
-NUM_EPISODES = 30
+NUM_EPISODES = 1000
 SAVE_FREQUENCY = 10
 # In general, a typical game of Azul between two skilled players 
 # can take anywhere from 20 to 40 per player
@@ -437,15 +437,7 @@ class AdvancedGame:
             # print("Agent turn: ", agent_turn)
             # print("Agent trace: ", state.agents[agent_turn].agent_trace.actions)
 
-            # when the action is end round, the next state generated is scoring the
-            # rounds for each state agent and add the tiles to the used bag
-            next_state = self.game_rule.generateSuccessor(state,action,agent_turn)
-            reward = current_agent.reward_function(state, next_state, is_timed_out)
-            current_agent.episode_total_reward += reward
-            # features should be extracted from state and successor_state
-            # before putting them into memory
-            curr_feature = current_agent.get_features(state)
-            next_feature = current_agent.get_features(next_state)
+            
             if isinstance(action, tuple):
                 tg = action[2]
                 pattern_line_dest = tg.pattern_line_dest
@@ -453,19 +445,45 @@ class AdvancedGame:
                 num_to_floor_line = tg.num_to_floor_line
                 try:
                     action_index = current_agent.action_encoder.action_dict[(pattern_line_dest, num_to_pattern_line, num_to_floor_line)]
+                    # when the action is end round, the next state generated is scoring the
+                    # rounds for each state agent and add the tiles to the used bag
+                    next_state = self.game_rule.generateSuccessor(state,action,agent_turn)
+                    reward = current_agent.reward_function(state, next_state, is_timed_out)
+                    current_agent.episode_total_reward += reward
+                    # features should be extracted from state and successor_state
+                    # before putting them into memory
+                    curr_feature = current_agent.get_features(state)
+                    next_feature = current_agent.get_features(next_state)
                 except:
-                    print("Action key pattern: ", (pattern_line_dest, num_to_pattern_line, num_to_floor_line))
+                    # print("Action key pattern: ", (pattern_line_dest, num_to_pattern_line, num_to_floor_line))
                     legal_actions = self.game_rule.getLegalActions(state,current_agent.id)
-                    for action in legal_actions:
-                        if len(action) == 3:
-                            pattern_line_dest = action[2].pattern_line_dest
-                            num_to_pattern_line = action[2].num_to_pattern_line
-                            num_to_floor_line = action[2].num_to_floor_line
-                            print("Other action key pattern: ", (pattern_line_dest, num_to_pattern_line, num_to_floor_line))
+                    for action_2 in legal_actions:
+                        if len(action_2) == 3:
+                            tile_type = action_2[2].tile_type
+                            pattern_line_dest = action_2[2].pattern_line_dest
+                            num_to_pattern_line = action_2[2].num_to_pattern_line
+                            num_to_floor_line = action_2[2].num_to_floor_line
+                            if tile_type > 0 and num_to_floor_line <= 7: 
+                                action = action_2
+                                action_index = current_agent.action_encoder.action_dict[(pattern_line_dest, num_to_pattern_line, num_to_floor_line)]
+                                print("Tile type: ", action[2].tile_type)
+                                next_state = self.game_rule.generateSuccessor(state,action,agent_turn)
+                                reward = current_agent.reward_function(state, next_state, is_timed_out)
+                                current_agent.episode_total_reward += reward
+                                next_feature = current_agent.get_features(next_state)
+                                print("Other action key pattern: ", (pattern_line_dest, num_to_pattern_line, num_to_floor_line))
                         else:
                             print("Other actions here: ", action)
-                    exit()
-                current_agent.remember(curr_feature, action_index, reward, next_feature, done)
+                            action = action_2
+                            next_state = self.game_rule.generateSuccessor(state,action,agent_turn)
+                            reward = current_agent.reward_function(state, next_state, is_timed_out)
+                            current_agent.episode_total_reward += reward
+                            next_feature = current_agent.get_features(next_state)
+                    
+                if action_index:
+                    current_agent.remember(curr_feature, action_index, reward, next_feature, done)
+                else:
+                    return 
             current_agent.replay()
             # update the state variable
             state = next_state
