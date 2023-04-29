@@ -77,7 +77,6 @@ class DQNAgent:
         self.epsilon = EPSILON
         self.epsilon_decay = EPSILON_DECAY
         self.epsilon_min = MIN_EPSILON
-        self.game_rule = AzulGameRule(NUM_PLAYERS)
         # getlegalactions need gamestate
         # gamestate is azul_state
         # policy network
@@ -208,7 +207,7 @@ class DQNAgent:
     # act function is responsible for selecting an action to take in the current state. 
     # It does this by either selecting a random action with a certain probabilty (exploration), 
     # or selecting the action with the highest Q-value as determined by the neural network (exploitation)
-    def act(self, state):
+    def act(self, state, game_rule):
         # This line of code implements the epsilon greedy policy
         # The function np.random.rand() generates a random number between 0 and 1
         # and epsilon is the probability of choosing a random action instead of an action
@@ -217,7 +216,11 @@ class DQNAgent:
         # If the random number is less than or equal to EPSILON, the agent will explore the game space
         # by occassionally selecting random actions 
         # Get legal actions
-        legal_actions = self.game_rule.getLegalActions(state, self.id)
+        legal_actions = game_rule.getLegalActions(state, self.id)
+        for action in legal_actions:
+            if action == "ENDROUND":
+                return action
+            
         if np.random.rand() <= self.epsilon:
             return random.choice(legal_actions)
         print("Finally random action is not chosen")
@@ -232,8 +235,6 @@ class DQNAgent:
         
         # TODO: test this part 
         # flatten the legal actions
-        if len(legal_actions) == 1:
-            return legal_actions
         
         max_q_val = float("-inf")
         # need to account for end action
@@ -426,9 +427,9 @@ class AdvancedGame:
             # give one second limit to choose action
             is_timed_out = False
             try: 
-                action = func_timeout(self.time_limit, current_agent.act, args= (state,))
+                action = func_timeout(self.time_limit, current_agent.act, args= (state, self.game_rule))
             except: 
-                action = current_agent.act(state)
+                action = current_agent.act(state, self.game_rule)
                 is_timed_out = True
             # successor state
             #self.game_rule.update(action)
@@ -450,7 +451,20 @@ class AdvancedGame:
                 pattern_line_dest = tg.pattern_line_dest
                 num_to_pattern_line = tg.num_to_pattern_line
                 num_to_floor_line = tg.num_to_floor_line
-                action_index = current_agent.action_encoder.action_dict[(pattern_line_dest, num_to_pattern_line, num_to_floor_line)]
+                try:
+                    action_index = current_agent.action_encoder.action_dict[(pattern_line_dest, num_to_pattern_line, num_to_floor_line)]
+                except:
+                    print("Action key pattern: ", (pattern_line_dest, num_to_pattern_line, num_to_floor_line))
+                    legal_actions = self.game_rule.getLegalActions(state,current_agent.id)
+                    for action in legal_actions:
+                        if len(action) == 3:
+                            pattern_line_dest = action[2].pattern_line_dest
+                            num_to_pattern_line = action[2].num_to_pattern_line
+                            num_to_floor_line = action[2].num_to_floor_line
+                            print("Other action key pattern: ", (pattern_line_dest, num_to_pattern_line, num_to_floor_line))
+                        else:
+                            print("Other actions here: ", action)
+                    exit()
                 current_agent.remember(curr_feature, action_index, reward, next_feature, done)
             current_agent.replay()
             # update the state variable
