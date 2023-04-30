@@ -15,13 +15,14 @@ class myAgent():
         self.agent_state = self.azul_state.AgentState
 
     def evaluate(self, state):
-        # TODO: find the value of a state
-        return state.agents[self.id].score
+        agent1_score,_ = state.agents[self.id].ScoreRound()
+        agent2_score,_ = state.agents[self.id*-1 + 1].ScoreRound()
+        return (self.game_rule.calScore(state, self.id) - self.game_rule.calScore(state, self.id*-1 + 1)) + (agent1_score - agent2_score)
     
     def minimax(self, state, action, depth, alpha, beta, maximizing=True):
 
         # base case 
-        if depth == 0 or action[0] == "Action.ENDROUND" or self.game_rule.gameEnds():
+        if depth == 0:
             return self.evaluate(state)
 
         # maximizing player case 
@@ -38,6 +39,7 @@ class myAgent():
                 except:
                     pass
             return v
+        # minimizing player case
         else:
             v = math.inf
             for action in self.game_rule.getLegalActions(state, self.id*-1 + 1):
@@ -55,11 +57,11 @@ class myAgent():
     def SelectAction(self, actions, rootstate):
         try:
             max_val = -math.inf
-            best_action = None
+            best_action = None  
             for action in actions:
                 try:
                     successor = self.game_rule.generateSuccessor(rootstate, action, self.id)
-                    v = self.minimax(successor, action, depth=0, alpha=-math.inf, beta=math.inf, maximizing=True)
+                    v = self.minimax(successor, action, depth=2, alpha=-math.inf, beta=math.inf, maximizing=True)
                     if v > max_val:
                         max_val = v
                         best_action = action
@@ -70,7 +72,7 @@ class myAgent():
             else:
                 return best_action
         except:
-            traceback.print_exc()
+            random.choice(actions)
 
 # command to run the program
 #  python general_game_runner.py -g Azul -a agents.generic.random,agents.t_XX3.minimax -p
