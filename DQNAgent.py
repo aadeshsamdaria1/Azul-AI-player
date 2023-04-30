@@ -23,6 +23,7 @@ class myAgent():
         self.action_encoder = ActionEncoder()
         self.action_encoder.map_action()
         self.game_rule = GameRule(NUM_PLAYERS)
+        self.validAction = self.game_rule.validAction
         weights = {}
         target_layer = list()
         self.model = self.build_model()
@@ -143,6 +144,7 @@ class myAgent():
     def SelectAction(self, legal_actions, game_state):
         # if np.random.rand() <= self.epsilon:
         #         return random.choice(legal_actions)
+        max_action = random.choice(legal_actions)
         features = self.get_features(game_state)
         features = features.reshape(1, -1)
         q_values = self.model.predict(features, verbose = 0)[0]
