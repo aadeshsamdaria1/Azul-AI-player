@@ -1,6 +1,5 @@
 import math
 import random
-import traceback
 from Azul.azul_model import *
 from copy import deepcopy
 
