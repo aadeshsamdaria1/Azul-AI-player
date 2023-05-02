@@ -44,7 +44,7 @@ class Node:
     def ucb_score(self, child_node):
         if child_node.visits == 0:
             return float('-inf')
-        exploitation_term = child_node.total_value / child_node.visits
+        exploitation_term = child_node.q_value / child_node.visits
         exploration_term = math.sqrt(math.log(self.visits) / child_node.visits)
         return exploitation_term + EXPLORATION_FACTOR * exploration_term
 
@@ -84,16 +84,16 @@ class MCTS:
     def Selection(self, root: Node):
         node = root
         while len(node.children): ### not node.fully_expanded():
-            node = self.best_ucb_child(node)
+            node = node.best_ucb_child()
         return node
 
     def Expansion(self, node: Node):
         opponent_id = 1 - node.player_id
-        game_state = deepcopy(node.state)
-        actions = self.game_rule.getLegalActions(game_state, node.player_id)
+        actions = self.game_rule.getLegalActions(node.state, node.player_id)
         for action in actions:
+            game_state = deepcopy(node.state)
             successor = self.game_rule.generateSuccessor(game_state, action, node.player_id)
-            node.children.append(Node(successor, action, opponent_id, self))
+            node.children.append(Node(successor, action, opponent_id, node))
 
 
         return node.children
@@ -115,7 +115,7 @@ class MCTS:
         parent = node
         while parent:
             parent.update(reward)
-            parent = node.parent
+            parent = parent.parent
 
     def evaluate_score(self, game_state: State, agent_id):
         return self.game_rule.calScore(game_state, agent_id) 
@@ -127,7 +127,6 @@ class myAgent(Agent):
         self.game_rule = GameRule(NUM_PLAYERS)
 
     def SelectAction(self, actions, rootstate):
-        print(actions)
         root_node = Node(rootstate, None, self.id, None)
         monte_carlo = MCTS(root_node)
         best_move = monte_carlo.Search()
