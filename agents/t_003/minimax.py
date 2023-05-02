@@ -2,6 +2,7 @@ import math
 import random
 from Azul.azul_model import *
 from copy import deepcopy
+import time
 
 NUM_PLAYERS = 2
 
