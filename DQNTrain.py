@@ -3,7 +3,6 @@ import numpy as np
 import tensorflow as tf 
 import random
 from template import Agent as DummyAgent
-import matplotlib.pyplot as plt
 import random, copy, time
 from   template     import GameState
 from   func_timeout import func_timeout, FunctionTimedOut
@@ -15,14 +14,14 @@ THINK_TIME = 0.9
 NUM_PLAYERS = 2
 NUM_COLOR = 5
 GRID_SIZE = 5
-BATCH_SIZE = 100
-DISCOUNT_FACTOR = 0.99
+BATCH_SIZE = 256
+DISCOUNT_FACTOR = 0.95
 EPSILON = 1.0
-EPSILON_DECAY = 0.999
+EPSILON_DECAY = 0.99
 LEARNING_RATE = 0.01
 MIN_EPSILON = 0.01
-MEMORY_CAPACITY = 3000
-NUM_EPISODES = 30
+MEMORY_CAPACITY = 7000
+NUM_EPISODES = 100
 SAVE_FREQUENCY = 10
 FREEDOM = False  
 WARMUP  = 15
@@ -178,7 +177,7 @@ class DQNAgent:
         #print("Accessed index: ", NUM_PLAYERS * NUM_COLOR + NUM_COLOR + NUM_PLAYERS + 1)
         features[NUM_PLAYERS * NUM_COLOR * GRID_SIZE + NUM_FACTORIES * NUM_COLOR + NUM_COLOR + NUM_PLAYERS + GRID_SIZE * GRID_SIZE + GRID_SIZE + 1] = self.id
         return features
-    # TODO: may be wrong
+
     def get_player_tiles(self, state):
         # initialize a numpy array of size (NUM_PLAYERS * NUM_COLOR * GRID_SIZE)
         player_filled_tile = np.zeros((NUM_PLAYERS * NUM_COLOR * GRID_SIZE, ))
@@ -197,7 +196,6 @@ class DQNAgent:
     def SelectAction(self, legal_actions, game_state):  
             if np.random.rand() <= self.epsilon:
                 return random.choice(legal_actions)
-            # TODO: need to change this
             # Extract relevant features for the Azul game state
             features = self.get_features(game_state)
             # Reshape the feature vector to be used as an input to the model
@@ -207,7 +205,6 @@ class DQNAgent:
             q_values = self.model.predict(features, verbose = 0)[0]
             # set q-values for unavailable actions to very low values
         
-            # TODO: test this part 
             # flatten the legal actions
             max_q_val = float("-inf")
             # need to account for end action
@@ -226,14 +223,12 @@ class DQNAgent:
                     # get this index from the q-values
                     q_val = q_values[index]
                     if q_val > max_q_val:
-                        max_q_index = index
                         max_action = (action_type, id, tg)
             return max_action
     
     # replay function is responsible for training the neural network based on a batch of experiences 
     # sampled randomly from the agent's memory. This is done in order to update the Q-values of the neural 
     # network and improve the agent's policy. 
-    # TODO : check this
     def replay(self):
         if len(self.memory) < BATCH_SIZE:
             return
@@ -281,14 +276,20 @@ class DQNAgent:
     def reward_function(self, state, action, successor_state):
         # Get the number of completed pattern lines in the previous state and current state
         # penalize against action that places in the floor line
+
+        # penalties for invalid actions: penalize actions that place tiles in a pattern line 
+        # that is already full or doesnt match the tile colour
         reward = 0
+        # get the agent's current and future score
+        
         if isinstance(action, tuple):
             tg = action[2]
             num_to_floor_line = tg.num_to_floor_line
-            reward -= (num_to_floor_line) * 5
+            reward -= (num_to_floor_line) * 20
             # get the agent state in the previous state
             state_completed_lines = self.get_completed_patternlines(state)
             nextstate_completed_lines = self.get_completed_patternlines(successor_state)
+  
             if nextstate_completed_lines > state_completed_lines:
                 reward += (nextstate_completed_lines - state_completed_lines) * 5
             small_reward = self.compare_states_patternline(state, successor_state)
@@ -298,6 +299,7 @@ class DQNAgent:
         return reward
     def long_term_reward(self, state, action, successor_state):
         # get the pattern line number of the action
+        # TODO: give a bonus reward for completing entire rows or columns
         if isinstance(action, tuple):
             tg = action[2]
             row = tg.pattern_line_dest
@@ -307,6 +309,7 @@ class DQNAgent:
             # the long term reward is only possible, if at least one of the target tile
             # is placed on the pattern line
             # for that row and column in the wall grid, check how many filled slots are there
+   
             if tg.num_to_pattern_line > 0:
                 for i in range(GRID_SIZE):
                     # same column (across row)
@@ -316,6 +319,7 @@ class DQNAgent:
                         if i != row: 
                             diff_row = abs(row - i)
                             lt_r += (GRID_SIZE - diff_row) * 10
+            
                 for j in range(GRID_SIZE):
                     # same row (across column)
                     if state.agents[self.id].grid_state[row][j]:
@@ -323,6 +327,7 @@ class DQNAgent:
                         if j != wall_col:
                             diff_col = abs(wall_col - 1)
                             lt_r += (GRID_SIZE - diff_col) * 20
+        
             return lt_r
         
 
@@ -330,6 +335,8 @@ class DQNAgent:
 
     def compare_states_patternline(self, state, next_state):
           # give a small reward if this state fills in more in the same pattern line
+          # TODO: giving different number of points based on the length of the completed pattern 
+          # line. Longer lines could lead to higher rewards
           state_lines_number = state.agents[self.id].lines_number
            # state_lines_tile = state.agents[self.id].lines_tile
           nextstate_lines_number = next_state.agents[self.id].lines_number
@@ -337,7 +344,7 @@ class DQNAgent:
           small_reward = 0
           for i in range(GRID_SIZE):
               if nextstate_lines_number[i] > state_lines_number[i]:
-                  small_reward += 1
+                  small_reward += 1 * nextstate_lines_number[i]
           return small_reward
               
 
@@ -498,7 +505,7 @@ class Game:
                 curr_feature = agent.get_features(gs_copy)
                 next_feature = agent.get_features(self.game_rule.current_game_state)
                 if (isinstance(selected, tuple)):
-                    print("Reward: ", reward)
+                    # print("Reward: ", reward)
                     agent.remember(curr_feature, selected, reward, next_feature, self.game_rule.gameEnds())
                 agent.replay()
 
@@ -535,19 +542,19 @@ if __name__ == "__main__":
         random.seed(random_seed)
         seed_list = [random.randint(0,1e10) for _ in range(1000)]
         seed_idx = 0
-        for i in range(NUM_EPISODES // 2):
-              agent_list = list()
-              agent_list.append(random_agent)
-              agent_list.append(deepq_agent)
-              seed = seed_list[i]
-              game = Game(AzulGameRule, agent_list, NUM_PLAYERS, deepq_agent.id, seed)
-              output = game.Run()
-              print("Episode num: ", current_number_of_episodes)
-              end_of_game_score = output["scores"]
-              if i % SAVE_FREQUENCY == 0:
-                  deepq_agent.save("policymodel.h5")
-              current_number_of_episodes += 1
-        for j in range(NUM_EPISODES // 2, NUM_EPISODES):
+        # for i in range(NUM_EPISODES ):
+        #       agent_list = list()
+        #       agent_list.append(random_agent)
+        #       agent_list.append(deepq_agent)
+        #       seed = seed_list[i]
+        #       game = Game(AzulGameRule, agent_list, NUM_PLAYERS, deepq_agent.id, seed)
+        #       output = game.Run()
+        #       print("Episode num: ", current_number_of_episodes)
+        #       end_of_game_score = output["scores"]
+        #       if i % SAVE_FREQUENCY == 0:
+        #           deepq_agent.save("policymodel.h5")
+        #       current_number_of_episodes += 1
+        for j in range(NUM_EPISODES):
               agent_list = list()
               deepq_agent.id = 0
               random_agent.id = 1

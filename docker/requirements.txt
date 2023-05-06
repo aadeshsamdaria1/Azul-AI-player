@@ -1,6 +1,7 @@
 func-timeout==4.3.5
 numpy==1.19.5
 GitPython == 3.1.17
+protobuf==3.20.0
 pytz==2022.1
 dataclasses==0.6
 tensorflow==2.7.1

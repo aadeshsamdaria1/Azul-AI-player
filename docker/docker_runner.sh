@@ -57,7 +57,7 @@ docker container rm ${container_name}
 # docker_cmd="docker run -it --rm --cpus=${CPU_limit} --memory=${RAM_limit} --name ${container_name} -v ${current_path}:${docker_path} -w /${docker_path} ${image_name}:${image_tag} $*"
 
 #for debugging: showing the bash window directly
-docker_cmd="docker run -it --rm --cpus=${CPU_limit} --memory=${RAM_limit} --name ${container_name} -v ${current_path}:${docker_path} -w /${docker_path} ${image_name}:${image_tag} bash"
+docker_cmd="winpty docker run --privileged -it --rm --cpus=${CPU_limit} --memory=${RAM_limit} --name ${container_name} -v ${current_path}:${docker_path}:cached -w /${docker_path} ${image_name}:${image_tag} bash"
 
 
 echo $docker_cmd
