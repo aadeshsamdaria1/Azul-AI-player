@@ -1,5 +1,4 @@
 from tensorflow import keras
-from DQNTrain import ActionEncoder
 from Azul.azul_model import AzulGameRule as GameRule
 import Azul.azul_utils as utils
 import numpy as np
@@ -14,6 +13,30 @@ GRID_SIZE = 5
 NUM_FACTORIES = 5
 LEARNING_RATE = 0.01
 EPSILON_VALUE = 0.2
+
+
+class ActionEncoder:
+    # missing one element, num_avail
+    # In a 2-player game of Azul, the number of tiles that each type can occur is at most 5, since there are
+    # only 20 tiles of each type in a game
+    def map_action(self):
+        self.action_dict = {}
+        index = 0
+        # for abstraction, just get pattern_line_dest, num_to_pattern_line and num_to_floor_line
+        for tile in utils.Tile:
+            for pattern_line_dest in range(GRID_SIZE):
+                for num_to_pattern_line in range(0, GRID_SIZE + 1):
+                    self.action_dict[(tile, pattern_line_dest,
+                                      num_to_pattern_line)] = index
+                    index += 1
+
+        # Get the total number of possible actions
+        # print("Size of action space: ", len(self.action_dict))
+        with open("action_space.txt", "w") as f:
+            f.write(str(self.action_dict))
+        self.num_actions = len(self.action_dict)
+
+
 class myAgent():
     def __init__(self, _id):
         self.id = _id
@@ -49,14 +72,17 @@ class myAgent():
 
             except:
                 print("Please ignore this")
+
     def build_model(self):
         model = tf.keras.Sequential()
-        model.add(tf.keras.layers.Dense(150, input_shape=(114,), activation='relu'))
+        model.add(tf.keras.layers.Dense(
+            150, input_shape=(114,), activation='relu'))
         model.add(tf.keras.layers.Dense(150, activation='relu'))
         model.add(tf.keras.layers.Dense(150, activation='linear'))
-        model.compile(loss='mse', optimizer=tf.keras.optimizers.Adam(learning_rate=self.learning_rate))
+        model.compile(loss='mse', optimizer=tf.keras.optimizers.Adam(
+            learning_rate=self.learning_rate))
         return model
-    
+
     # include build model and get features
     def get_features(self, state):
         # Extract relevant features for the Azul game state
@@ -71,7 +97,8 @@ class myAgent():
 
         # Initialize the feature vector with zeros
         # 5 + 5 * 2 + 2 + 1
-        features = np.zeros((NUM_PLAYERS * NUM_COLOR * GRID_SIZE + NUM_FACTORIES * NUM_COLOR + NUM_COLOR + NUM_PLAYERS + GRID_SIZE * GRID_SIZE + GRID_SIZE + 2, ))
+        features = np.zeros((NUM_PLAYERS * NUM_COLOR * GRID_SIZE + NUM_FACTORIES *
+                            NUM_COLOR + NUM_COLOR + NUM_PLAYERS + GRID_SIZE * GRID_SIZE + GRID_SIZE + 2, ))
         #print("Actual size: ", len(features))
         # Add the number of tiles in each colour that have not yet been placed on the game board
 
@@ -79,17 +106,19 @@ class myAgent():
         # get the total tiles from all factories for later use
         factory_tile_count = 0
         # there are five factories in a five player game
-        for factory_num, factory in enumerate(state.factories): 
+        for factory_num, factory in enumerate(state.factories):
             # there are 5 types of tiles
             for colour in utils.Tile:
-                features[factory_num * NUM_COLOR + colour] = factory.tiles[colour]
+                features[factory_num * NUM_COLOR +
+                         colour] = factory.tiles[colour]
                 factory_tile_count += factory.tiles[colour]
                 # factory from state.factories
                 # state.centre_pool.tiles
                 # factory.tiles
         # also add from the centre
         for colour in utils.Tile:
-            features[NUM_FACTORIES * NUM_COLOR + colour] += state.centre_pool.tiles[colour]
+            features[NUM_FACTORIES * NUM_COLOR +
+                     colour] += state.centre_pool.tiles[colour]
 
         # add the number of tiles of each player that have been placed on the game board
         # access through self.agents
@@ -97,33 +126,39 @@ class myAgent():
         # self.lines_number[line]
         # size: NUM_PLAYERS * NUM_COLOR * GRID_SIZE
         players_filled_tiles = self.get_player_tiles(state)
-        features[NUM_FACTORIES * NUM_COLOR  + NUM_COLOR : NUM_PLAYERS * NUM_COLOR * GRID_SIZE + NUM_FACTORIES * NUM_COLOR + NUM_COLOR] = players_filled_tiles
+        features[NUM_FACTORIES * NUM_COLOR + NUM_COLOR: NUM_PLAYERS * NUM_COLOR *
+                 GRID_SIZE + NUM_FACTORIES * NUM_COLOR + NUM_COLOR] = players_filled_tiles
 
         # Add the current score of each player
         # self.score in agent state
         for i in range(NUM_PLAYERS):
             player = state.agents[i]
-            features[NUM_PLAYERS * NUM_COLOR * GRID_SIZE + NUM_FACTORIES * NUM_COLOR + NUM_COLOR + i]  = player.score
-        
+            features[NUM_PLAYERS * NUM_COLOR * GRID_SIZE +
+                     NUM_FACTORIES * NUM_COLOR + NUM_COLOR + i] = player.score
+
         # Add the agent's wall grid
         for i in range(GRID_SIZE):
             for j in range(GRID_SIZE):
-                features[NUM_PLAYERS * NUM_COLOR * GRID_SIZE + NUM_FACTORIES * NUM_COLOR + NUM_COLOR + NUM_PLAYERS + i * GRID_SIZE + j] = state.agents[self.id].grid_state[i][j]
+                features[NUM_PLAYERS * NUM_COLOR * GRID_SIZE + NUM_FACTORIES * NUM_COLOR +
+                         NUM_COLOR + NUM_PLAYERS + i * GRID_SIZE + j] = state.agents[self.id].grid_state[i][j]
         # Add the current round in the game
         # AgentState.agent_trace.round_scores
         current_agent = state.agents[self.id]
 
         # records the scores in each round
-        # if the length of round_scores is 5, it means 5 rounds have been completed and 
+        # if the length of round_scores is 5, it means 5 rounds have been completed and
         # we are currently in the sixth round
         round_scores = current_agent.agent_trace.round_scores
         current_round = len(round_scores) + 1
-        features[NUM_PLAYERS * NUM_COLOR * GRID_SIZE + NUM_FACTORIES * NUM_COLOR + NUM_COLOR + NUM_PLAYERS + GRID_SIZE * GRID_SIZE + GRID_SIZE] = current_round
+        features[NUM_PLAYERS * NUM_COLOR * GRID_SIZE + NUM_FACTORIES * NUM_COLOR +
+                 NUM_COLOR + NUM_PLAYERS + GRID_SIZE * GRID_SIZE + GRID_SIZE] = current_round
         # Add the current player's id
         #print("Accessed index: ", NUM_PLAYERS * NUM_COLOR + NUM_COLOR + NUM_PLAYERS + 1)
-        features[NUM_PLAYERS * NUM_COLOR * GRID_SIZE + NUM_FACTORIES * NUM_COLOR + NUM_COLOR + NUM_PLAYERS + GRID_SIZE * GRID_SIZE + GRID_SIZE + 1] = self.id
+        features[NUM_PLAYERS * NUM_COLOR * GRID_SIZE + NUM_FACTORIES * NUM_COLOR +
+                 NUM_COLOR + NUM_PLAYERS + GRID_SIZE * GRID_SIZE + GRID_SIZE + 1] = self.id
         return features
     # TODO: may be wrong
+
     def get_player_tiles(self, state):
         # initialize a numpy array of size (NUM_PLAYERS * NUM_COLOR * GRID_SIZE)
         player_filled_tile = np.zeros((NUM_PLAYERS * NUM_COLOR * GRID_SIZE, ))
@@ -136,9 +171,10 @@ class myAgent():
                     tile_color = player.lines_tile[j]
                     num_filled = player.lines_number[j]
                     # update the player_filled_tile array with the specific tile colour information
-                    player_filled_tile[i * (NUM_COLOR * GRID_SIZE) + tile_color * GRID_SIZE + j] = num_filled
+                    player_filled_tile[i * (NUM_COLOR * GRID_SIZE) +
+                                       tile_color * GRID_SIZE + j] = num_filled
         return player_filled_tile
-    
+
     def SelectAction(self, legal_actions, game_state):
         # if np.random.rand() <= self.epsilon:
         #         return random.choice(legal_actions)
@@ -146,7 +182,7 @@ class myAgent():
         max_action = random.choice(legal_actions)
         features = self.get_features(game_state)
         features = features.reshape(1, -1)
-        q_values = self.model.predict(features, verbose = 0)[0]
+        q_values = self.model.predict(features, verbose=0)[0]
         max_q_val = float("-inf")
         # need to account for end action
         for action in legal_actions:
@@ -161,7 +197,8 @@ class myAgent():
                 if pattern_line_dest >= 0:
                     num_to_pattern_line = tg.num_to_pattern_line
                     num_to_floor_line = tg.num_to_floor_line
-                    index = self.action_encoder.action_dict[(tile_type, pattern_line_dest, num_to_pattern_line)]
+                    index = self.action_encoder.action_dict[(
+                        tile_type, pattern_line_dest, num_to_pattern_line)]
                     # get this index from the q-values
                     q_val = q_values[index]
                     if q_val > max_q_val:
