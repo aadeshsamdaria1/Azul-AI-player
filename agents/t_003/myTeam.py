@@ -32,8 +32,6 @@ class ActionEncoder:
 
         # Get the total number of possible actions
         # print("Size of action space: ", len(self.action_dict))
-        with open("action_space.txt", "w") as f:
-            f.write(str(self.action_dict))
         self.num_actions = len(self.action_dict)
 
 
@@ -52,7 +50,7 @@ class myAgent():
         self.model = self.build_model()
         for layer in self.model.layers:
             target_layer.append(layer)
-        file_path = "policymodel.h5"
+        file_path = "agents/t_003/policymodel.h5"
         with h5py.File(file_path, 'r') as f:
             try:
                 count = 0
