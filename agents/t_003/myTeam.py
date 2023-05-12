@@ -23,7 +23,7 @@ class myAgent():
     def minimax(self, state, action, depth, alpha, beta, maximizing=True):
 
         # Base case for recursion - if depth reaches 0, return the evaluation of the current state
-        if depth == 0 or not state.TilesRemaining() or self.game_rule.gameEnds():
+        if depth == 0:
             return self.evaluate(deepcopy(state))
 
         # Maximizing player case 
@@ -63,12 +63,11 @@ class myAgent():
         try:
             max_val = -math.inf
             best_action = None
-            depth_limit = self.Calculatedepthlimit(actions)
             for action in actions: # Loop over each action and evaluate the successor state using minimax algorithm
                 try:
                     successor = self.game_rule.generateSuccessor(deepcopy(rootstate), action, self.id)
                     # Call minimax with depth=2, alpha=-infinity, beta=infinity, and maximizing=True, since the current player is trying to maximize their score
-                    v = self.minimax(successor, action, depth=depth_limit, alpha=-math.inf, beta=math.inf, maximizing=True)
+                    v = self.minimax(successor, action, depth=2, alpha=-math.inf, beta=math.inf, maximizing=True)
                     # Update max_val and best_action if a higher value is found
                     if v > max_val:
                         max_val = v
@@ -83,12 +82,3 @@ class myAgent():
         except:
             # In case of an error, choose a random action from the list of available actions
             return random.choice(actions)
-        
-    def Calculatedepthlimit(self, actions):
-        len_actions = len(actions)
-        if len_actions >50:
-            return 3
-        elif len_actions > 10:
-            return 4
-        else: 
-            return 5
