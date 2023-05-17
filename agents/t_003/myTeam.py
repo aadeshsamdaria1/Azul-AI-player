@@ -7,6 +7,7 @@ from copy import deepcopy
 from collections import deque
 from typing import List
 from template import Agent
+import time
 
 THINKTIME   = 0.9
 NUM_PLAYERS = 2
@@ -16,6 +17,7 @@ class MinimaxAgent():
     def __init__(self, _id):
         self.id = _id # Agent ID
         self.game_rule = GameRule(NUM_PLAYERS) # Create an instance of the Azul game rules
+        self.transition_table = {}
 
     # Method to evaluate a given state and return a score
     def evaluate(self, state):
@@ -29,8 +31,10 @@ class MinimaxAgent():
     def minimax(self, state, action, depth, alpha, beta, maximizing=True):
 
         # Base case for recursion - if depth reaches 0, return the evaluation of the current state
-        if depth == 0:
-            return self.evaluate(deepcopy(state))
+        if depth == 0 or not state.TilesRemaining() or self.game_rule.gameEnds():
+            value = self.evaluate(deepcopy(state))
+            self.transition_table[state] = value
+            return value
 
         # Maximizing player case 
         if maximizing:
@@ -39,7 +43,10 @@ class MinimaxAgent():
             for action in self.game_rule.getLegalActions(state, self.id):
                 try:
                     successor = self.game_rule.generateSuccessor(state, action, self.id)
-                    v_successor = self.minimax(successor, action, depth - 1, alpha, beta, False)    
+                    if successor in self.transition_table.keys():
+                        v_successor = self.transition_table[successor]
+                    else:
+                        v_successor = self.minimax(successor, action, depth - 1, alpha, beta, True)
                     v = max(v, v_successor) # Update v to be the maximum of v and the evaluation of the successor state
                     alpha = max(alpha, v) # Update alpha to be the maximum of alpha and v
                     # If beta is less than or equal to alpha, break the loop since the minimum value that the other player can force will already be less than or equal to v
@@ -55,7 +62,10 @@ class MinimaxAgent():
             for action in self.game_rule.getLegalActions(state, self.id*-1 + 1):
                 try:
                     successor = self.game_rule.generateSuccessor(state, action, self.id*-1 + 1)
-                    v_successor = self.minimax(successor, action, depth - 1, alpha, beta, True)
+                    if successor in self.transition_table.keys():
+                        v_successor = self.transition_table[successor]
+                    else:
+                        v_successor = self.minimax(successor, action, depth - 1, alpha, beta, True)
                     v = min(v, v_successor) # Update v to be the minimum of v and the evaluation of the successor state
                     beta = min(beta, v) # Update beta to be the minimum of beta and v
                     # If beta is less than or equal to alpha, break the loop since the minimum value that the other player can force will already be less than or equal to v
@@ -69,11 +79,15 @@ class MinimaxAgent():
         try:
             max_val = -math.inf
             best_action = None
+            depth_limit = self.Calculatedepthlimit(actions)
             for action in actions: # Loop over each action and evaluate the successor state using minimax algorithm
                 try:
                     successor = self.game_rule.generateSuccessor(deepcopy(rootstate), action, self.id)
-                    # Call minimax with depth=2, alpha=-infinity, beta=infinity, and maximizing=True, since the current player is trying to maximize their score
-                    v = self.minimax(successor, action, depth=2, alpha=-math.inf, beta=math.inf, maximizing=True)
+                    if successor in self.transition_table.keys():
+                        v = self.transition_table[successor]
+                    else:
+                        # Call minimax with depth=2, alpha=-infinity, beta=infinity, and maximizing=True, since the current player is trying to maximize their score
+                        v = self.minimax(successor, action, depth=depth_limit, alpha=-math.inf, beta=math.inf, maximizing=True)
                     # Update max_val and best_action if a higher value is found
                     if v > max_val:
                         max_val = v
@@ -88,6 +102,15 @@ class MinimaxAgent():
         except:
             # In case of an error, choose a random action from the list of available actions
             return random.choice(actions)
+        
+    def Calculatedepthlimit(self, actions):
+        len_actions = len(actions)
+        if len_actions >50:
+            return 3
+        elif len_actions > 10:
+            return 4
+        else: 
+            return 5
         
 class Node:
     def __init__(self, state: State, action, player_id, parent=None):
@@ -245,9 +268,11 @@ class myAgent():
         self.game_rule = GameRule(NUM_PLAYERS)
 
     def SelectAction(self, actions, rootstate):
+        st= time.time()
         root_node = Node(rootstate, None, self.id, None)
         monte_carlo = MCTS(self.id, root_node)
         best_move = monte_carlo.Search()
+        print(time.time() - st)
         if not best_move:
             return random.choice(actions)
         return best_move
