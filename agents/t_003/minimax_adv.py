@@ -10,6 +10,7 @@ class myAgent():
     def __init__(self, _id):
         self.id = _id # Agent ID
         self.game_rule = AzulGameRule(NUM_PLAYERS) # Create an instance of the Azul game rules
+        self.transition_table = {}
 
     # Method to evaluate a given state and return a score
     def evaluate(self, state):
@@ -24,7 +25,9 @@ class myAgent():
 
         # Base case for recursion - if depth reaches 0, return the evaluation of the current state
         if depth == 0 or not state.TilesRemaining() or self.game_rule.gameEnds():
-            return self.evaluate(deepcopy(state))
+            value = self.evaluate(deepcopy(state))
+            self.transition_table[state] = value
+            return value
 
         # Maximizing player case 
         if maximizing:
@@ -33,7 +36,10 @@ class myAgent():
             for action in self.game_rule.getLegalActions(state, self.id):
                 try:
                     successor = self.game_rule.generateSuccessor(state, action, self.id)
-                    v_successor = self.minimax(successor, action, depth - 1, alpha, beta, False)    
+                    if successor in self.transition_table.keys():
+                        v_successor = self.transition_table[successor]
+                    else:
+                        v_successor = self.minimax(successor, action, depth - 1, alpha, beta, True)
                     v = max(v, v_successor) # Update v to be the maximum of v and the evaluation of the successor state
                     alpha = max(alpha, v) # Update alpha to be the maximum of alpha and v
                     # If beta is less than or equal to alpha, break the loop since the minimum value that the other player can force will already be less than or equal to v
@@ -49,7 +55,10 @@ class myAgent():
             for action in self.game_rule.getLegalActions(state, self.id*-1 + 1):
                 try:
                     successor = self.game_rule.generateSuccessor(state, action, self.id*-1 + 1)
-                    v_successor = self.minimax(successor, action, depth - 1, alpha, beta, True)
+                    if successor in self.transition_table.keys():
+                        v_successor = self.transition_table[successor]
+                    else:
+                        v_successor = self.minimax(successor, action, depth - 1, alpha, beta, True)
                     v = min(v, v_successor) # Update v to be the minimum of v and the evaluation of the successor state
                     beta = min(beta, v) # Update beta to be the minimum of beta and v
                     # If beta is less than or equal to alpha, break the loop since the minimum value that the other player can force will already be less than or equal to v
@@ -67,8 +76,11 @@ class myAgent():
             for action in actions: # Loop over each action and evaluate the successor state using minimax algorithm
                 try:
                     successor = self.game_rule.generateSuccessor(deepcopy(rootstate), action, self.id)
-                    # Call minimax with depth=2, alpha=-infinity, beta=infinity, and maximizing=True, since the current player is trying to maximize their score
-                    v = self.minimax(successor, action, depth=depth_limit, alpha=-math.inf, beta=math.inf, maximizing=True)
+                    if successor in self.transition_table.keys():
+                        v = self.transition_table[successor]
+                    else:
+                        # Call minimax with depth=2, alpha=-infinity, beta=infinity, and maximizing=True, since the current player is trying to maximize their score
+                        v = self.minimax(successor, action, depth=depth_limit, alpha=-math.inf, beta=math.inf, maximizing=True)
                     # Update max_val and best_action if a higher value is found
                     if v > max_val:
                         max_val = v
