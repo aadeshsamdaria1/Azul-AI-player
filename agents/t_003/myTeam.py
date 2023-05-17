@@ -21,6 +21,7 @@ class Node:
         self.visits = 0
         self.action = action
         self.q_value = 0
+        self.sum_of_squares = 0
         self.player_id = player_id
 
     def add_child(self, child_state):
@@ -31,6 +32,7 @@ class Node:
     def update(self, reward):
         self.visits += 1
         self.q_value += reward
+        self.sum_of_squares += reward**2
 
     def fully_expanded(self):
         return all(child.visits > 0 for child in self.children)
@@ -40,12 +42,28 @@ class Node:
     
     def best_ucb_child(self):
         return max(self.children, key=lambda child_node: self.ucb_score(child_node), default=None)
+    
+    def best_ucb1_tuned_child(self):
+        return max(self.children, key=lambda child_node: self.ucb1_tuned_score(child_node), default=None)
 
     def ucb_score(self, child_node):
         if child_node.visits == 0:
             return float('-inf')
         exploitation_term = child_node.q_value / child_node.visits
         exploration_term = math.sqrt(math.log(self.visits) / child_node.visits)
+        return exploitation_term + EXPLORATION_FACTOR * exploration_term
+    
+    def ucb1_tuned_score(self, child_node):
+        if child_node.visits == 0:
+            return float('inf')
+
+        exploitation_term = child_node.q_value / child_node.visits
+
+        variance = (child_node.sum_of_squares / child_node.visits) - (child_node.q_value / child_node.visits)**2
+        variance_term = min(1/4, variance + math.sqrt((2*math.log(self.visits)) / child_node.visits))
+
+        exploration_term = math.sqrt((math.log(self.visits) / child_node.visits) * variance_term)
+
         return exploitation_term + EXPLORATION_FACTOR * exploration_term
 
 class MCTS:
