@@ -5,7 +5,7 @@ from copy import deepcopy
 
 NUM_PLAYERS = 2
 
-class MinimaxAgent():
+class myAgent():
     # Constructor for the class
     def __init__(self, _id):
         self.id = _id # Agent ID
@@ -61,7 +61,7 @@ class MinimaxAgent():
     
     def SelectAction(self, actions, rootstate):
         try:
-            max_val = -math.inf 
+            max_val = -math.inf
             best_action = None
             for action in actions: # Loop over each action and evaluate the successor state using minimax algorithm
                 try:
