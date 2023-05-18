@@ -8,6 +8,7 @@ NUM_PLAYERS = 2
 class myAgent():
     # Constructor for the class
     def __init__(self, _id):
+        print("--Minimax agent loaded--")
         self.id = _id # Agent ID
         self.game_rule = AzulGameRule(NUM_PLAYERS) # Create an instance of the Azul game rules
         self.transition_table = {}
