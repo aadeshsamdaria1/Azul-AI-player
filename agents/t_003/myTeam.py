@@ -11,7 +11,7 @@ from template import Agent
 
 THINKTIME   = 0.9
 NUM_PLAYERS = 2
-EXPLORATION_FACTOR = 0.3
+EXPLORATION_FACTOR = 0.5
 
 class Node:
     def __init__(self, state: State, action, player_id, parent=None):
@@ -71,6 +71,7 @@ class MCTS:
         self.exploration_constant = EXPLORATION_FACTOR
         self.game_rule = GameRule(NUM_PLAYERS)
         self.root = root
+        self.transposition_table = {}
 
     def Search(self):
 
@@ -101,17 +102,22 @@ class MCTS:
 
     def Selection(self, root: Node):
         node = root
-        while len(node.children): ### not node.fully_expanded():
+        while len(node.children):
+            # if self.hash(node.state) in self.transposition_table:
+            #     return self.transposition_table[self.hash(node.state)]
+            # else:
             node = node.best_ucb_child()
         return node
 
     def Expansion(self, node: Node):
         opponent_id = 1 - node.player_id
         actions = self.game_rule.getLegalActions(node.state, node.player_id)
+        actions = self.simplify_action_space(actions)
         for action in actions:
             game_state = deepcopy(node.state)
             successor = self.game_rule.generateSuccessor(game_state, action, node.player_id)
             node.children.append(Node(successor, action, opponent_id, node))
+            # self.transposition_table[self.hash(successor)] = node.children[-1]
 
 
         return node.children
@@ -149,8 +155,38 @@ class MCTS:
             parent = parent.parent
 
     def evaluate_score(self, game_state: State, agent_id):
-        return self.game_rule.calScore(game_state, agent_id) 
+        return self.game_rule.calScore(game_state, agent_id)
     
+    def hash(self, state):
+        # Placeholder hash function that will convert GameState into hash for the Transposition Table
+        return hash(str(state))
+    
+    def simplify_action_space(self, moves):
+
+        def too_many_to_floor_line(move, limit):
+            return move[2].num_to_floor_line >= limit
+
+        def picking_one_to_higher_lines(move):
+            return move[2].pattern_line_dest > 2 and move[2].num_to_pattern_line in [0, 1, 2]
+
+        def no_pattern_line(move):
+            return move[2].num_to_pattern_line == 0
+
+        simplified_moves = []
+        for move in moves:
+            if len(moves) > 50 and (picking_one_to_higher_lines(move) or too_many_to_floor_line(move, 1)):
+                continue
+            if len(moves) > 30 and too_many_to_floor_line(move, 2):
+                continue
+            if len(moves) > 10 and no_pattern_line(move):
+                continue
+            if len(moves) > 5 and too_many_to_floor_line(move, 3):
+                continue
+
+            simplified_moves.append(move)
+                
+        return simplified_moves
+
 class myAgent(Agent):
     def __init__(self, _id):
         super().__init__(_id)
