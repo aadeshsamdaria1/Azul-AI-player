@@ -10,7 +10,7 @@ from Azul.azul_utils import Tile
 
 from template import Agent
 
-THINKTIME   = 0.9
+THINKTIME   = 0.95
 NUM_PLAYERS = 2
 EXPLORATION_FACTOR = 0.5
 
@@ -120,7 +120,6 @@ class MCTS:
             node.children.append(Node(successor, action, opponent_id, node))
             # self.transposition_table[self.hash(successor)] = node.children[-1]
 
-
         return node.children
     
     def Simulation(self, node: Node):
@@ -156,10 +155,10 @@ class MCTS:
             parent = parent.parent
 
     def evaluate_score(self, game_state: State, agent_id):
-        goal = self.calculate_bonus(self, game_state: State, agent_id)
-        penalty = self.calculate_penalty(game_state, agent_id)
+        reward = self.calculate_future_reward(game_state, agent_id)
+        penalty = self.calculate_future_penalty(game_state, agent_id)
 
-        return self.game_rule.calScore(game_state, agent_id) - penalty
+        return self.game_rule.calScore(game_state, agent_id) + reward - penalty
     
     def hash(self, state):
         # Placeholder hash function that will convert GameState into hash for the Transposition Table
@@ -184,21 +183,24 @@ class MCTS:
                 continue
             if len(moves) > 10 and no_pattern_line(move):
                 continue
-            if len(moves) > 5 and too_many_to_floor_line(move, 3):
+            if len(moves) > 5 and (too_many_to_floor_line(move, 3) or move[2].number > 6):
                 continue
 
             simplified_moves.append(move)
+        
+        if not simplified_moves:
+            return moves
                 
         return simplified_moves
     
-    def calculate_penalty(self, game_state: State, agent_id):
+    def calculate_future_penalty(self, game_state: State, agent_id):
         penalty_mapping = {
             "incomplete_line": 1,
             "near_completion": 0.5,
             "single_tile": 0.5,
             "last_two_rows": 0.25,
             "last_row": 0.5,
-            "same_color": 0.5  
+            "same_colour": 0.5  
         }
 
         agent_state = game_state.agents[agent_id]
@@ -233,12 +235,50 @@ class MCTS:
         # Add penalties for same color in multiple rows
         for color, count in color_counts.items():
             if count > 1:
-                penalty += (count - 1) * penalty_mapping["same_color"]
+                penalty += (count - 1) * penalty_mapping["same_colour"]
 
         return penalty
 
-    def calculate_bonus(self, game_state: State, agent_id):
-        pass
+    def calculate_future_reward(self, game_state: State, agent_id):
+        reward_mapping = {
+            "different_colours": 1,
+            "no_triple_colours": 2.5,
+            "half_filled": 0.5,
+            "full_line": 1,
+            "multiple_full_line": 1.5,
+            "same_color": 0.5
+        }
+        future_reward = 0
+        agent_state = game_state.agents[agent_id]
+
+        row_bonus = agent_state.GetCompletedRows() * agent_state.ROW_BONUS
+        col_bonus = agent_state.GetCompletedColumns() * agent_state.COL_BONUS
+        set_bonus = agent_state.GetCompletedSets() * agent_state.SET_BONUS
+        
+        future_reward += row_bonus + col_bonus + set_bonus
+
+        color_counts = {color: 0 for color in Tile} 
+        full_lines = 0
+        for i in range(0, 5):
+            line_color = agent_state.lines_tile[i]
+            line_count = agent_state.lines_number[i]
+            if line_count == i:
+                future_reward += reward_mapping["full_line"] + full_lines
+                full_lines += reward_mapping["multiple_full_line"]
+
+            if i > 2 and line_count in [2,3]:
+                future_reward += reward_mapping["half_filled"]
+
+            if line_color != -1:
+                color_counts[line_color] += 1
+        
+        if all(value < 3 for value in color_counts.values()):
+            future_reward += reward_mapping["no_triple_colours"]
+
+        elif all(value < 2 for value in color_counts.values()):
+            future_reward += reward_mapping["different_colours"]
+
+        return future_reward
 
 
 
