@@ -155,7 +155,8 @@ class MCTS:
             parent = parent.parent
 
     def evaluate_score(self, game_state: State, agent_id):
-        return self.game_rule.calScore(game_state, agent_id)
+        penalty = self.calculate_penalty(game_state, agent_id)
+        return self.game_rule.calScore(game_state, agent_id) - penalty
     
     def hash(self, state):
         # Placeholder hash function that will convert GameState into hash for the Transposition Table
@@ -186,7 +187,40 @@ class MCTS:
             simplified_moves.append(move)
                 
         return simplified_moves
+    
+    def calculate_penalty(self, game_state: State, agent_id):
+        penalty_mapping = {
+            "incomplete_line": 1,
+            "near_completion": 0.5,
+            "single_tile": 0.5,
+            "last_two_rows": 0.25,
+            "last_row": 0.5
+        }
 
+        agent_state = game_state.agents[agent_id]
+        penalty = 0
+
+        # Punish unfinished pattern line
+        for i in range(0, 5):
+            line_count = agent_state.lines_number[i]
+            is_incomplete = line_count > 0 and line_count < i+1
+            is_near_completion = i > 0 and line_count == i
+            is_single_tile = i > 0 and line_count == 1
+
+            if is_incomplete:
+                penalty += penalty_mapping["incomplete_line"]
+            if is_near_completion:
+                penalty += penalty_mapping["near_completion"]
+            if is_single_tile:
+                penalty += penalty_mapping["single_tile"]
+                # Additional penalty if 1 tile added to last 2 rows
+                if i > 3:
+                    penalty += penalty_mapping["last_two_rows"]
+                if i > 4:
+                    penalty += penalty_mapping["last_row"]
+
+        return penalty
+    
 class myAgent(Agent):
     def __init__(self, _id):
         super().__init__(_id)
