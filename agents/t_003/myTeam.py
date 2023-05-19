@@ -13,6 +13,8 @@ from template import Agent
 THINKTIME   = 0.95
 NUM_PLAYERS = 2
 EXPLORATION_FACTOR = 0.5
+FUTURE_REWARD_WEIGHT = 0.5
+FUTURE_PENALTY_WEIGHT = 1
 
 class Node:
     def __init__(self, state: State, action, player_id, parent=None):
@@ -107,7 +109,7 @@ class MCTS:
             # if self.hash(node.state) in self.transposition_table:
             #     return self.transposition_table[self.hash(node.state)]
             # else:
-            node = node.best_ucb_child()
+            node = node.best_ucb1_tuned_child()
         return node
 
     def Expansion(self, node: Node):
@@ -155,8 +157,8 @@ class MCTS:
             parent = parent.parent
 
     def evaluate_score(self, game_state: State, agent_id):
-        reward = self.calculate_future_reward(game_state, agent_id)
-        penalty = self.calculate_future_penalty(game_state, agent_id)
+        reward = FUTURE_REWARD_WEIGHT * self.calculate_future_reward(game_state, agent_id)
+        penalty = FUTURE_PENALTY_WEIGHT * self.calculate_future_penalty(game_state, agent_id)
 
         return self.game_rule.calScore(game_state, agent_id) + reward - penalty
     
@@ -246,7 +248,10 @@ class MCTS:
             "half_filled": 0.5,
             "full_line": 1,
             "multiple_full_line": 1.5,
-            "same_color": 0.5
+            "three_row": 0.5,
+            "four_row": 1,
+            "three_col": 1.5,
+            "four_col": 3,
         }
         future_reward = 0
         agent_state = game_state.agents[agent_id]
@@ -271,7 +276,19 @@ class MCTS:
 
             if line_color != -1:
                 color_counts[line_color] += 1
-        
+
+        for col_count in sum(agent_state.grid_state):
+            if col_count >= 4:
+                future_reward += reward_mapping["four_col"]
+            elif col_count >= 3:
+                future_reward += reward_mapping["three_col"]
+
+        for row in agent_state.grid_state:
+            if sum(row) >= 4:
+                future_reward += reward_mapping["four_row"]
+            elif sum(row) >= 3:
+                future_reward += reward_mapping["three_row"]
+
         if all(value < 3 for value in color_counts.values()):
             future_reward += reward_mapping["no_triple_colours"]
 
