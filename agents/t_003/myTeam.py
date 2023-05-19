@@ -6,6 +6,7 @@ from Azul.azul_model import AzulState as State
 from copy import deepcopy
 from collections import deque
 from typing import List
+from Azul.azul_utils import Tile
 
 from template import Agent
 
@@ -155,7 +156,9 @@ class MCTS:
             parent = parent.parent
 
     def evaluate_score(self, game_state: State, agent_id):
+        goal = self.calculate_bonus(self, game_state: State, agent_id)
         penalty = self.calculate_penalty(game_state, agent_id)
+
         return self.game_rule.calScore(game_state, agent_id) - penalty
     
     def hash(self, state):
@@ -194,18 +197,25 @@ class MCTS:
             "near_completion": 0.5,
             "single_tile": 0.5,
             "last_two_rows": 0.25,
-            "last_row": 0.5
+            "last_row": 0.5,
+            "same_color": 0.5  
         }
 
         agent_state = game_state.agents[agent_id]
         penalty = 0
 
+        color_counts = {color: 0 for color in Tile} 
+
         # Punish unfinished pattern line
         for i in range(0, 5):
+            line_color = agent_state.lines_tile[i]
             line_count = agent_state.lines_number[i]
             is_incomplete = line_count > 0 and line_count < i+1
             is_near_completion = i > 0 and line_count == i
             is_single_tile = i > 0 and line_count == 1
+
+            if line_color != -1:  # -1 means no tile in the line
+                color_counts[line_color] += 1
 
             if is_incomplete:
                 penalty += penalty_mapping["incomplete_line"]
@@ -213,14 +223,25 @@ class MCTS:
                 penalty += penalty_mapping["near_completion"]
             if is_single_tile:
                 penalty += penalty_mapping["single_tile"]
+
                 # Additional penalty if 1 tile added to last 2 rows
                 if i > 3:
                     penalty += penalty_mapping["last_two_rows"]
                 if i > 4:
                     penalty += penalty_mapping["last_row"]
 
+        # Add penalties for same color in multiple rows
+        for color, count in color_counts.items():
+            if count > 1:
+                penalty += (count - 1) * penalty_mapping["same_color"]
+
         return penalty
-    
+
+    def calculate_bonus(self, game_state: State, agent_id):
+        pass
+
+
+
 class myAgent(Agent):
     def __init__(self, _id):
         super().__init__(_id)
