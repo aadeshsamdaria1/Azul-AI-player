@@ -4,6 +4,8 @@ from Azul.azul_model import *
 from copy import deepcopy
 import collections
 import time
+import numpy as np
+from Azul.azul_utils import Tile
 THINK_TIME = 0.9
 NUM_PLAYERS = 2
 GRID_SIZE = 5
@@ -16,7 +18,7 @@ class myAgent():
         self.id = _id  # Agent ID
         # Create an instance of the Azul game rules
         self.game_rule = AzulGameRule(NUM_PLAYERS)
-        self.transition_table = {}
+        self.transposition_table = {}
 
     def get_remainder(self, player_state, line_idx, num_to_line):
         remainder = 0
@@ -130,9 +132,14 @@ class myAgent():
     def minimax(self, game_state, depth, alpha, beta, maximizing=True):
         action_threshold = 6
         # base case
+
         if depth == 0 or self.game_rule.gameEnds() or game_state.TilesRemaining() == 0:
             V = self.evaluate(game_state)
             return (None, V)
+        
+        state_key = self.hash_game_state(game_state) # assumes game state can be converted to a string
+        if state_key in self.transposition_table and depth in self.transposition_table[state_key]:
+            return self.transposition_table[state_key][depth]
 
         # maximizing player case
         if maximizing:
@@ -180,6 +187,9 @@ class myAgent():
                 if alpha >= beta:
                     break
 
+            if state_key not in self.transposition_table:
+                self.transposition_table[state_key] = {}
+            self.transposition_table[state_key][depth] = (best_move, value)
             return best_move, value
 
         # minimizing player case
@@ -229,6 +239,9 @@ class myAgent():
                 if alpha >= beta:
                     break
 
+            if state_key not in self.transposition_table:
+                self.transposition_table[state_key] = {}
+            self.transposition_table[state_key][depth] = (best_move, value)
             return best_move, value
         
     def simplify_action_space(self, moves):
@@ -260,6 +273,42 @@ class myAgent():
                 
         return simplified_moves
     
+    def hash_game_state(self, game_state):
+        # Hash for each agent
+        agent_hashes = []
+        for agent in game_state.agents:
+            agent_hash = (
+                agent.id,
+                agent.score,
+                sum(agent.lines_number),
+                sum(agent.lines_tile),
+                int(np.sum(agent.grid_state)),
+                sum(agent.floor),
+            )
+            agent_hashes.append(agent_hash)
+        
+        # Hash for the bag
+        bag_hash = tuple(game_state.bag.count(tile) for tile in Tile)
+        
+        # Hash for the bag used
+        bag_used_hash = tuple(game_state.bag_used.count(tile) for tile in Tile)
+        
+        # Hash for the factories
+        factory_hashes = []
+        for factory in game_state.factories:
+            factory_hash = tuple(factory.tiles.values())
+            factory_hashes.append(factory_hash)
+        
+        # Hash for the center pool
+        center_pool_hash = tuple(game_state.centre_pool.tiles.values())
+        
+        # Combine all the hashes
+        game_hash = (*agent_hashes, bag_hash, bag_used_hash, *factory_hashes, center_pool_hash)
+        
+        return game_hash
+
+
+
     def SelectAction(self, moves, game_state):
         depth = 4
 

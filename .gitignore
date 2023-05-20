@@ -5,3 +5,4 @@ output/
 
 
 config/token.txt
+.vscode/launch.json
