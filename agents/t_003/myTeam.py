@@ -138,6 +138,7 @@ class myAgent():
         if maximizing:
             value = -math.inf
             moves = self.game_rule.getLegalActions(game_state, self.id)
+            moves = self.simplify_action_space(moves)
             best_move = moves[0]
             move_dict = {}
             plr_state = game_state.agents[self.id]
@@ -185,6 +186,7 @@ class myAgent():
         else:
             value = math.inf
             moves = self.game_rule.getLegalActions(game_state, self.id*-1 + 1)
+            moves = self.simplify_action_space(moves)
             best_move = moves[0]
             enemy_state = game_state.agents[self.id*-1 + 1]
             move_dict = {}
@@ -228,7 +230,36 @@ class myAgent():
                     break
 
             return best_move, value
+        
+    def simplify_action_space(self, moves):
 
+        def too_many_to_floor_line(move, limit):
+            return move[2].num_to_floor_line >= limit
+
+        def picking_one_to_higher_lines(move):
+            return move[2].pattern_line_dest > 2 and move[2].num_to_pattern_line in [0, 1, 2]
+
+        def no_pattern_line(move):
+            return move[2].num_to_pattern_line == 0
+
+        simplified_moves = []
+        for move in moves:
+            if len(moves) > 50 and (picking_one_to_higher_lines(move) or too_many_to_floor_line(move, 1)):
+                continue
+            if len(moves) > 30 and too_many_to_floor_line(move, 2):
+                continue
+            if len(moves) > 10 and no_pattern_line(move) or move[2].number > 6:
+                continue
+            if len(moves) > 5 and (too_many_to_floor_line(move, 3)):
+                continue
+
+            simplified_moves.append(move)
+        
+        if not simplified_moves:
+            return moves
+                
+        return simplified_moves
+    
     def SelectAction(self, moves, game_state):
         depth = 4
 
