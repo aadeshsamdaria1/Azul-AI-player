@@ -20,6 +20,7 @@ class myAgent():
         self.game_rule = AzulGameRule(NUM_PLAYERS)
         self.transposition_table = {}
 
+    # This get_remainder function is referenced from kaiyoo/AI-agent-Azul-Game-Competition minimax.py
     def get_remainder(self, player_state, line_idx, num_to_line):
         remainder = 0
 
@@ -32,7 +33,7 @@ class myAgent():
             remainder = line_idx + 1 - num_to_line
 
         return remainder
-
+    # This get_bag function is referenced from from kaiyoo/AI-agent-Azul-Game-Competition minimax.py
     def get_bag(self, game_state):
         # get unused tiles
         bag_dic = collections.defaultdict(int)
@@ -97,7 +98,8 @@ class myAgent():
         return penalty
    
 
-
+     # This get_bonus function is referenced from from kaiyoo/AI-agent-Azul-Game-Competition minimax.py
+     # with some modications made to improve the readability of the code with some variable names changed
     def get_bonus(self, bonus_unit, game_state, player_state, round_num, flag):
         bag_dic = self.get_bag(game_state)
         estimated_bonus = 0
@@ -152,7 +154,7 @@ class myAgent():
         estimated_bonus = estimated_bonus*0.9**(4-round_num)
         return estimated_bonus
     # long term reward
-
+     # This get_future_bonus function is references from from kaiyoo/AI-agent-Azul-Game-Competition minimax.py
     def get_future_bonus(self, game_state, player_state, round_num):
         row_score = self.get_bonus(
             2, game_state, player_state, round_num, 'row')
@@ -162,9 +164,7 @@ class myAgent():
             10, game_state, player_state, round_num, 'set')
         return row_score + column_score + set_score
 
-    # Method to evaluate a given state and return a score
     def evaluate(self, state):
-        # Get the scores of each player from the given state
         round_num = (4 - len(state.bag) // 20)
         plr_state = state.agents[self.id]
         enemy_state = state.agents[self.id*-1 + 1]
@@ -179,7 +179,7 @@ class myAgent():
         diff_score = (agent1_score - agent2_score) + player_bonus - \
             opponent_bonus + player_escore - opponent_escore  
         return diff_score
-
+   # Part of this minimax function code is referenced from from kaiyoo/AI-agent-Azul-Game-Competition minimax.py
     def minimax(self, game_state, depth, alpha, beta, maximizing=True):
         action_threshold = 6
         # base case
@@ -252,7 +252,6 @@ class myAgent():
             enemy_state = game_state.agents[self.id*-1 + 1]
             move_dict = {}
 
-            # filtering some unplausible actions
             if len(moves) > 6:
                 for move in moves:
                     if move[2].num_to_floor_line > 1 or move[2].pattern_line_dest == -1:
