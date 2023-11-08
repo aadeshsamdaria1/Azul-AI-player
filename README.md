@@ -1,6 +1,4 @@
-# Assignment 3: Azul Project
-
-You must read fully and carefully the assignment specification and instructions detailed in this file. You are NOT to modify this file in any way.
+# Azul Player
 
 * **Course:** [COMP90054 AI Planning for Autonomy](https://handbook.unimelb.edu.au/subjects/comp90054) @ Semester 1, 2023
 * **Instructor:** Tim Miller and Nir Lipovetzky
